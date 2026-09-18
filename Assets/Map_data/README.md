@@ -10,6 +10,22 @@ Spårvagn Rush game-jam project.
 
 The game must display: **Map data © OpenStreetMap contributors**.
 
+## Buildings
+
+`buildings.geojson` holds the 924 building footprints inside the same window,
+fetched from Overpass and reassembled into closed rings (courtyards included) by
+`Tools/FetchBuildings.py`. Refetch with:
+
+    python Tools/FetchBuildings.py
+
+The generator extrudes each footprint to the height OSM gives it: the `height`
+tag where it exists (46 footprints), otherwise `building:levels` (296), and
+otherwise a default for that kind of building. Only the tags the extruder reads
+are kept in the file.
+
+- Source: https://www.openstreetmap.org/
+- Licence: ODbL 1.0, same as `export.geojson`
+
 ## Elevation data
 
 `gothenburg_height_513.bytes` is a 513×513 game-ready crop generated from
