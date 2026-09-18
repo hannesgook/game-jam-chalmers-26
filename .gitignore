@@ -67,6 +67,7 @@ crashlytics-build.properties
 *_BackUpThisFolder_ButDontShipItWithYourGame/
 
 # Builds and packaged output
+/Builds/
 *.apk
 *.aab
 *.unitypackage
