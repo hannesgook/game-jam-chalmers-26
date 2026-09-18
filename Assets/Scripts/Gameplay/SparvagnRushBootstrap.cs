@@ -24,11 +24,12 @@ namespace SparvagnRush.Gameplay
             }
 
             Vector3 requestedStart = network.Graph[0].position;
-            GameObject tramObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            GameObject tram_obj = Resources.Load<GameObject>("Prefabs/tram");
+            GameObject tramObject = GameObject.Instantiate(tram_obj);
             tramObject.name = "PlayerTram";
-            tramObject.transform.localScale = new Vector3(3.2f, 2.4f, 9f);
+           // tramObject.transform.localScale = new Vector3(3.2f, 2.4f, 9f);
             Destroy(tramObject.GetComponent<Collider>());
-            tramObject.GetComponent<Renderer>().sharedMaterial = CreateRuntimeMaterial(new Color(0.1f, 0.55f, 0.95f));
+//          tramObject.GetComponent<Renderer>().sharedMaterial = CreateRuntimeMaterial(new Color(0.1f, 0.55f, 0.95f));
             TramController tram = tramObject.AddComponent<TramController>();
             tram.Initialize(network, requestedStart);
             tramObject.AddComponent<TramAudio>().Initialize(tram);
