@@ -26,6 +26,16 @@ namespace SparvagnRush.Gameplay
         private float targetZoom = 1f;
         private float currentZoom = 1f;
 
+        [Header("Reverse view flip")]
+        [Tooltip("Seconds the 180 degree swing takes. Lower = snappier.")]
+        public float flipTime = 0.45f;
+        [Tooltip("The camera flips once the tram is moving backward faster than this, and flips back once it is moving forward faster than this.")]
+        public float reverseSpeedThreshold = 1f;
+
+        private bool flipped;
+        private float currentYaw;
+        private float yawVelocity;
+
         public void SetTarget(Transform newTarget)
         {
             target = newTarget;
@@ -38,8 +48,11 @@ namespace SparvagnRush.Gameplay
             if (target == null) return;
 
             HandleZoom();
+            HandleFlip();
 
-            Vector3 desired = target.position + target.rotation * (offset * currentZoom);
+            // Swing the offset around the tram's up axis (0 = behind the tram, 180 = in front of it).
+            Vector3 orbitOffset = Quaternion.Euler(0f, currentYaw, 0f) * (offset * currentZoom);
+            Vector3 desired = target.position + target.rotation * orbitOffset;
             transform.position = Vector3.SmoothDamp(transform.position, desired, ref velocity, 0.18f);
             transform.LookAt(target.position + Vector3.up * 2f);
             if (cameraComponent != null && tram != null)
@@ -64,6 +77,22 @@ namespace SparvagnRush.Gameplay
 #else
             return Input.mouseScrollDelta.y;
 #endif
+        }
+
+        private void HandleFlip()
+        {
+            // Automatic: move to the other end of the tram while it is clearly driving in reverse,
+            // so the camera always looks along the direction of travel. The gap between the two
+            // thresholds keeps the view from flickering when the tram is nearly stopped.
+            if (tram != null)
+            {
+                if (!flipped && tram.Speed < -reverseSpeedThreshold) flipped = true;
+                else if (flipped && tram.Speed > reverseSpeedThreshold) flipped = false;
+            }
+
+            // Animate the yaw so the camera orbits around the tram instead of cutting through it.
+            currentYaw = Mathf.SmoothDampAngle(currentYaw, flipped ? 180f : 0f, ref yawVelocity, flipTime);
+            currentYaw = Mathf.Repeat(currentYaw, 360f); // keep the number from growing with every flip
         }
     }
 }
