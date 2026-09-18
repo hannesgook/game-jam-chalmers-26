@@ -121,28 +121,59 @@ namespace SparvagnRush.Editor
             public readonly List<Vector3> Vertices = new();
             public readonly List<int> Triangles = new();
 
+            // One continuous strip with mitred joints. Emitting a loose quad per segment
+            // instead leaves a wedge of open ground on the outside of every bend, which
+            // at tram width is most of a metre on the sharper curves.
             public void AddRibbon(IReadOnlyList<GeoPoint> line, float width, float y)
             {
                 float halfWidth = width * 0.5f;
-                for (int i = 0; i < line.Count - 1; i++)
+                var points = new List<Vector3>(line.Count);
+                for (int i = 0; i < line.Count; i++)
                 {
-                    Vector3 a = Project(line[i], y);
-                    Vector3 b = Project(line[i + 1], y);
-                    Vector3 direction = b - a;
-                    if (direction.sqrMagnitude < 0.0001f) continue;
-                    Vector3 side = new Vector3(-direction.z, 0f, direction.x).normalized * halfWidth;
-                    int start = Vertices.Count;
-                    Vertices.Add(a - side);
-                    Vertices.Add(a + side);
-                    Vertices.Add(b + side);
-                    Vertices.Add(b - side);
-                    Triangles.Add(start);
-                    Triangles.Add(start + 1);
-                    Triangles.Add(start + 2);
-                    Triangles.Add(start);
-                    Triangles.Add(start + 2);
-                    Triangles.Add(start + 3);
+                    Vector3 point = Project(line[i], y);
+                    if (points.Count == 0 || (point - points[^1]).sqrMagnitude > 0.0001f) points.Add(point);
                 }
+                if (points.Count < 2) return;
+
+                int start = Vertices.Count;
+                for (int i = 0; i < points.Count; i++)
+                {
+                    Vector3 incoming = i > 0 ? Flatten(points[i] - points[i - 1]) : Vector3.zero;
+                    Vector3 outgoing = i < points.Count - 1 ? Flatten(points[i + 1] - points[i]) : Vector3.zero;
+                    if (incoming.sqrMagnitude < 0.0001f) incoming = outgoing;
+                    if (outgoing.sqrMagnitude < 0.0001f) outgoing = incoming;
+                    if (incoming.sqrMagnitude < 0.0001f) continue;
+                    Vector3 side = MitredOffset(incoming.normalized, outgoing.normalized, halfWidth);
+                    Vertices.Add(points[i] - side);
+                    Vertices.Add(points[i] + side);
+                }
+
+                for (int i = 0; i < points.Count - 1; i++)
+                {
+                    int corner = start + i * 2;
+                    Triangles.Add(corner);
+                    Triangles.Add(corner + 1);
+                    Triangles.Add(corner + 3);
+                    Triangles.Add(corner);
+                    Triangles.Add(corner + 3);
+                    Triangles.Add(corner + 2);
+                }
+            }
+
+            private static Vector3 Flatten(Vector3 value) => new(value.x, 0f, value.z);
+
+            // Widens the joint by 1/cos(half the turn) so the strip keeps its width
+            // through a bend. The clamp stops a hairpin from throwing out a long spike.
+            private static Vector3 MitredOffset(Vector3 incoming, Vector3 outgoing, float halfWidth)
+            {
+                Vector3 tangent = incoming + outgoing;
+                // Doubling straight back has no bisector; square the joint off instead.
+                if (tangent.sqrMagnitude < 0.0001f) tangent = outgoing;
+                tangent = tangent.normalized;
+                var miter = new Vector3(-tangent.z, 0f, tangent.x);
+                var outgoingNormal = new Vector3(-outgoing.z, 0f, outgoing.x);
+                float cosHalfTurn = Mathf.Abs(Vector3.Dot(miter, outgoingNormal));
+                return miter * (halfWidth / Mathf.Max(0.35f, cosHalfTurn));
             }
 
             public void AddPolygon(IReadOnlyList<GeoPoint> polygon, float y)
