@@ -16,6 +16,14 @@ namespace SparvagnRush.Editor
         private const string RootName = "GeneratedCity";
         private const string GeneratedAssetFolder = "Assets/GeneratedCity";
         private const string DefaultSource = "Assets/Map_data/export.geojson";
+        private const string DefaultHeightSource = "Assets/Map_data/gothenburg_height_513.bytes";
+        // Matches the heightmap grid exactly so ground vertices land on real samples;
+        // a coarser grid interpolates across them and lets roads sink into hillsides.
+        private const int GroundMeshResolution = 513;
+        // Heightmap cells are ~2.5 m across. OSM leaves long straight runs undivided
+        // (12% of segments exceed 25 m), so without resampling a ribbon only samples the
+        // terrain at its endpoints and buries itself in, or floats over, everything between.
+        private const double MaxSegmentMeters = 2.5;
 
         private const double South = 57.695;
         private const double West = 11.965;
@@ -24,18 +32,75 @@ namespace SparvagnRush.Editor
         private const double CenterLat = (South + North) * 0.5;
         private const double CenterLon = (West + East) * 0.5;
         private const double EarthRadius = 6378137.0;
+        private static HeightField currentHeightField;
+
+        private sealed class HeightField
+        {
+            private readonly int width;
+            private readonly int height;
+            private readonly float minimum;
+            private readonly float range;
+            private readonly ushort[] samples;
+
+            private HeightField(int width, int height, float minimum, float maximum, ushort[] samples)
+            {
+                this.width = width;
+                this.height = height;
+                this.minimum = minimum;
+                range = maximum - minimum;
+                this.samples = samples;
+            }
+
+            public static HeightField Load(string path)
+            {
+                if (!File.Exists(path)) return null;
+                using var reader = new BinaryReader(File.OpenRead(path));
+                string magic = new string(reader.ReadChars(4));
+                if (magic != "SRH1") throw new FormatException($"Unsupported heightmap format in {path}.");
+                int width = reader.ReadInt32();
+                int height = reader.ReadInt32();
+                float minimum = reader.ReadSingle();
+                float maximum = reader.ReadSingle();
+                if (width < 2 || height < 2 || maximum <= minimum) throw new FormatException($"Invalid heightmap header in {path}.");
+                var samples = new ushort[width * height];
+                for (int i = 0; i < samples.Length; i++) samples[i] = reader.ReadUInt16();
+                return new HeightField(width, height, minimum, maximum, samples);
+            }
+
+            public float Sample(double longitude, double latitude)
+            {
+                double u = Math.Clamp((longitude - West) / (East - West), 0.0, 1.0) * (width - 1);
+                double v = Math.Clamp((latitude - South) / (North - South), 0.0, 1.0) * (height - 1);
+                int x0 = Math.Min(width - 1, (int)Math.Floor(u));
+                int y0 = Math.Min(height - 1, (int)Math.Floor(v));
+                int x1 = Math.Min(width - 1, x0 + 1);
+                int y1 = Math.Min(height - 1, y0 + 1);
+                float tx = (float)(u - x0);
+                float ty = (float)(v - y0);
+                float a = Mathf.Lerp(Decode(x0, y0), Decode(x1, y0), tx);
+                float b = Mathf.Lerp(Decode(x0, y1), Decode(x1, y1), tx);
+                return Mathf.Lerp(a, b, ty);
+            }
+
+            private float Decode(int x, int y) => minimum + samples[y * width + x] / 65535f * range;
+        }
 
         [InitializeOnLoadMethod]
         private static void GenerateInitialMapAfterImport()
         {
-            if (AssetDatabase.IsValidFolder(GeneratedAssetFolder)) return;
             string projectRoot = Directory.GetParent(Application.dataPath)?.FullName ?? Application.dataPath;
             string sourcePath = Path.Combine(projectRoot, DefaultSource);
             if (!File.Exists(sourcePath)) return;
 
+            bool generatedAssetsExist = AssetDatabase.IsValidFolder(GeneratedAssetFolder);
+            bool heightDataExists = File.Exists(Path.Combine(projectRoot, DefaultHeightSource));
+            Mesh groundMesh = AssetDatabase.LoadAssetAtPath<Mesh>($"{GeneratedAssetFolder}/Ground.asset");
+            bool elevationUpgradeNeeded = heightDataExists && (groundMesh == null || groundMesh.vertexCount != GroundMeshResolution * GroundMeshResolution);
+            if (generatedAssetsExist && !elevationUpgradeNeeded) return;
+
             EditorApplication.delayCall += () =>
             {
-                if (!AssetDatabase.IsValidFolder(GeneratedAssetFolder)) GenerateFromPath(sourcePath);
+                GenerateFromPath(sourcePath);
             };
         }
 
@@ -83,7 +148,12 @@ namespace SparvagnRush.Editor
             public void AddPolygon(IReadOnlyList<GeoPoint> polygon, float y)
             {
                 var projected = new List<Vector3>(polygon.Count);
-                for (int i = 0; i < polygon.Count; i++) projected.Add(Project(polygon[i], y));
+                var elevations = new List<float>(polygon.Count);
+                for (int i = 0; i < polygon.Count; i++)
+                    elevations.Add(currentHeightField?.Sample(polygon[i].Lon, polygon[i].Lat) ?? 0f);
+                elevations.Sort();
+                float waterLevel = elevations.Count == 0 ? 0f : elevations[elevations.Count / 2];
+                for (int i = 0; i < polygon.Count; i++) projected.Add(ProjectAtElevation(polygon[i], waterLevel + y));
                 if (projected.Count > 1 && (projected[0] - projected[^1]).sqrMagnitude < 0.0001f)
                     projected.RemoveAt(projected.Count - 1);
                 if (projected.Count < 3) return;
@@ -129,6 +199,12 @@ namespace SparvagnRush.Editor
                 : Path.GetFullPath(Path.Combine(Directory.GetParent(Application.dataPath)!.FullName, sourcePath));
             if (!File.Exists(absolutePath)) throw new FileNotFoundException("GeoJSON file not found.", absolutePath);
 
+            string projectRoot = Directory.GetParent(Application.dataPath)?.FullName ?? Application.dataPath;
+            string heightPath = Path.GetFullPath(Path.Combine(projectRoot, DefaultHeightSource));
+            currentHeightField = HeightField.Load(heightPath);
+            if (currentHeightField == null)
+                Debug.LogWarning($"Heightmap not found at {DefaultHeightSource}; generating the legacy flat map.");
+
             Dictionary<string, object> root = GeoJsonLite.ParseObject(File.ReadAllText(absolutePath));
             if (!root.TryGetValue("features", out object featureValue) || featureValue is not List<object> features)
                 throw new FormatException("GeoJSON has no features array.");
@@ -163,9 +239,10 @@ namespace SparvagnRush.Editor
                 {
                     List<GeoPoint> line = ReadLine(coordinates);
                     List<List<GeoPoint>> clippedLines = ClipPolyline(line);
+                    for (int i = 0; i < clippedLines.Count; i++) clippedLines[i] = Densify(clippedLines[i]);
                     if (isRoad)
                     {
-                        foreach (List<GeoPoint> clipped in clippedLines) roadMesh.AddRibbon(clipped, 2.2f, 0.025f);
+                        foreach (List<GeoPoint> clipped in clippedLines) roadMesh.AddRibbon(clipped, 2.2f, 0.12f);
                         roadFeatures++;
                     }
                     if (isTram)
@@ -173,9 +250,9 @@ namespace SparvagnRush.Editor
                         string osmId = TryString(properties, "@id", out string id) ? id : "tram";
                         foreach (List<GeoPoint> clipped in clippedLines)
                         {
-                            tramMesh.AddRibbon(clipped, 3.4f, 0.06f);
+                            tramMesh.AddRibbon(clipped, 3.4f, 0.28f);
                             var points = new Vector3[clipped.Count];
-                            for (int i = 0; i < clipped.Count; i++) points[i] = Project(clipped[i], 0.06f);
+                            for (int i = 0; i < clipped.Count; i++) points[i] = Project(clipped[i], 0.28f);
                             trackPaths.Add(new TramTrackNetwork.TrackPath { osmId = osmId, points = points });
                         }
                         tramFeatures++;
@@ -184,13 +261,13 @@ namespace SparvagnRush.Editor
                 else if (geometryType == "Polygon" && isWater && coordinates is List<object> rings && rings.Count > 0)
                 {
                     List<GeoPoint> polygon = ClipPolygon(ReadLine(rings[0]));
-                    waterMesh.AddPolygon(polygon, 0.01f);
+                    waterMesh.AddPolygon(polygon, 0.08f);
                     waterFeatures++;
                 }
             }
 
             var generatedRoot = new GameObject(RootName);
-            CreateLayer(generatedRoot.transform, "Ground", CreateGroundMesh(), CreateMaterial("Ground", new Color(0.18f, 0.22f, 0.19f)));
+            CreateLayer(generatedRoot.transform, "Ground", CreateGroundMesh(), CreateMaterial("Ground", new Color(0.18f, 0.22f, 0.19f), true));
             CreateLayer(generatedRoot.transform, "Water", waterMesh.Build("WaterMesh"), CreateMaterial("Water", new Color(0.06f, 0.38f, 0.58f)));
             CreateLayer(generatedRoot.transform, "Roads", roadMesh.Build("RoadMesh"), CreateMaterial("Roads", new Color(0.25f, 0.27f, 0.28f)));
             GameObject tracks = CreateLayer(generatedRoot.transform, "TramTracks", tramMesh.Build("TramTrackMesh"), CreateMaterial("TramTracks", new Color(0.96f, 0.72f, 0.12f)));
@@ -204,7 +281,7 @@ namespace SparvagnRush.Editor
             AssetDatabase.SaveAssets();
             if (EditorSceneManager.GetActiveScene().IsValid() && !string.IsNullOrEmpty(EditorSceneManager.GetActiveScene().path))
                 EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene());
-            Debug.Log($"Generated Göteborg map from {Path.GetFileName(absolutePath)}: {tramFeatures} tram features ({trackPaths.Count} clipped paths), {roadFeatures} roads, {waterFeatures} water polygons.");
+            Debug.Log($"Generated Göteborg map from {Path.GetFileName(absolutePath)} using {(currentHeightField == null ? "flat ground" : "513x513 Göteborg elevation data")}: {tramFeatures} tram features ({trackPaths.Count} clipped paths), {roadFeatures} roads, {waterFeatures} water polygons.");
         }
 
         private static GameObject CreateLayer(Transform parent, string name, Mesh mesh, Material material)
@@ -218,10 +295,14 @@ namespace SparvagnRush.Editor
             return layer;
         }
 
-        private static Material CreateMaterial(string name, Color color)
+        private static Material CreateMaterial(string name, Color color, bool lit = false)
         {
-            Shader shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
+            Shader shader = lit
+                ? Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard")
+                : Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
             var material = new Material(shader) { name = name, color = color };
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", color);
+            if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", 0f);
             AssetDatabase.CreateAsset(material, $"{GeneratedAssetFolder}/{name}.mat");
             return material;
         }
@@ -239,17 +320,54 @@ namespace SparvagnRush.Editor
 
         private static Mesh CreateGroundMesh()
         {
-            Vector3 southWest = Project(new GeoPoint(West, South), 0f);
-            Vector3 northEast = Project(new GeoPoint(East, North), 0f);
             var mesh = new Mesh { name = "GroundMesh" };
-            mesh.vertices = new[]
+            if (currentHeightField == null)
             {
-                new Vector3(southWest.x, 0f, southWest.z),
-                new Vector3(southWest.x, 0f, northEast.z),
-                new Vector3(northEast.x, 0f, northEast.z),
-                new Vector3(northEast.x, 0f, southWest.z)
-            };
-            mesh.triangles = new[] { 0, 1, 2, 0, 2, 3 };
+                Vector3 southWest = Project(new GeoPoint(West, South), 0f);
+                Vector3 northEast = Project(new GeoPoint(East, North), 0f);
+                mesh.vertices = new[]
+                {
+                    new Vector3(southWest.x, 0f, southWest.z),
+                    new Vector3(southWest.x, 0f, northEast.z),
+                    new Vector3(northEast.x, 0f, northEast.z),
+                    new Vector3(northEast.x, 0f, southWest.z)
+                };
+                mesh.triangles = new[] { 0, 1, 2, 0, 2, 3 };
+                mesh.RecalculateNormals();
+                mesh.RecalculateBounds();
+                return mesh;
+            }
+
+            int resolution = GroundMeshResolution;
+            var vertices = new Vector3[resolution * resolution];
+            var triangles = new int[(resolution - 1) * (resolution - 1) * 6];
+            for (int z = 0; z < resolution; z++)
+            {
+                double latitude = South + (North - South) * z / (resolution - 1);
+                for (int x = 0; x < resolution; x++)
+                {
+                    double longitude = West + (East - West) * x / (resolution - 1);
+                    vertices[z * resolution + x] = Project(new GeoPoint(longitude, latitude), 0f);
+                }
+            }
+
+            int triangle = 0;
+            for (int z = 0; z < resolution - 1; z++)
+            for (int x = 0; x < resolution - 1; x++)
+            {
+                int bottomLeft = z * resolution + x;
+                int topLeft = bottomLeft + resolution;
+                triangles[triangle++] = bottomLeft;
+                triangles[triangle++] = topLeft;
+                triangles[triangle++] = topLeft + 1;
+                triangles[triangle++] = bottomLeft;
+                triangles[triangle++] = topLeft + 1;
+                triangles[triangle++] = bottomLeft + 1;
+            }
+
+            mesh.indexFormat = IndexFormat.UInt32;
+            mesh.vertices = vertices;
+            mesh.triangles = triangles;
             mesh.RecalculateNormals();
             mesh.RecalculateBounds();
             return mesh;
@@ -257,10 +375,16 @@ namespace SparvagnRush.Editor
 
         private static Vector3 Project(GeoPoint point, float y)
         {
+            float elevation = currentHeightField?.Sample(point.Lon, point.Lat) ?? 0f;
+            return ProjectAtElevation(point, elevation + y);
+        }
+
+        private static Vector3 ProjectAtElevation(GeoPoint point, float elevation)
+        {
             double latRadians = CenterLat * Math.PI / 180.0;
             float x = (float)((point.Lon - CenterLon) * Math.PI / 180.0 * EarthRadius * Math.Cos(latRadians));
             float z = (float)((point.Lat - CenterLat) * Math.PI / 180.0 * EarthRadius);
-            return new Vector3(x, y, z);
+            return new Vector3(x, elevation, z);
         }
 
         private static List<GeoPoint> ReadLine(object coordinateValue)
@@ -281,6 +405,31 @@ namespace SparvagnRush.Editor
             long integer => integer,
             _ => Convert.ToDouble(value, CultureInfo.InvariantCulture)
         };
+
+        private static List<GeoPoint> Densify(IReadOnlyList<GeoPoint> line)
+        {
+            var result = new List<GeoPoint>(line.Count);
+            if (line.Count == 0) return result;
+            double metersPerLon = Math.PI / 180.0 * EarthRadius * Math.Cos(CenterLat * Math.PI / 180.0);
+            const double metersPerLat = Math.PI / 180.0 * EarthRadius;
+            result.Add(line[0]);
+            for (int i = 1; i < line.Count; i++)
+            {
+                GeoPoint a = line[i - 1];
+                GeoPoint b = line[i];
+                double dx = (b.Lon - a.Lon) * metersPerLon;
+                double dz = (b.Lat - a.Lat) * metersPerLat;
+                int steps = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(dx * dx + dz * dz) / MaxSegmentMeters));
+                for (int step = 1; step < steps; step++)
+                {
+                    double t = (double)step / steps;
+                    result.Add(new GeoPoint(a.Lon + (b.Lon - a.Lon) * t, a.Lat + (b.Lat - a.Lat) * t));
+                }
+                // Re-add the original node verbatim so shared way endpoints still weld in TramTrackNetwork.
+                result.Add(b);
+            }
+            return result;
+        }
 
         private static List<List<GeoPoint>> ClipPolyline(IReadOnlyList<GeoPoint> source)
         {

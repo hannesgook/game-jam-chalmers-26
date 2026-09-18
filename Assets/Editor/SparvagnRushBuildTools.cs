@@ -17,8 +17,9 @@ namespace SparvagnRush.Editor
         {
             const string scenePath = "Assets/Scenes/SampleScene.unity";
             Scene buildScene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
-            if (GameObject.Find("GeneratedCity") == null)
-                GothenburgMapGenerator.GenerateFromDefaultFile();
+            // Always bake the current local map/elevation inputs before a build so
+            // the player never depends on source data or internet access at runtime.
+            GothenburgMapGenerator.GenerateFromDefaultFile();
             EditorSceneManager.SaveScene(buildScene);
 
             Directory.CreateDirectory(Path.GetDirectoryName(OutputPath)!);

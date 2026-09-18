@@ -68,6 +68,11 @@ crashlytics-build.properties
 
 # Builds and packaged output
 /Builds/
+
+# Local source elevation package (hundreds of MB). The reduced, game-ready
+# Assets/Map_data/gothenburg_height_513.bytes remains tracked.
+/Assets/Map_data/639_14/
+/Assets/Map_data/639_14.meta
 *.apk
 *.aab
 *.unitypackage

@@ -170,8 +170,8 @@ namespace SparvagnRush.Gameplay
                     alignment = TextAnchor.MiddleCenter,
                     normal = { textColor = Color.white }
                 };
-                GUI.Box(new Rect(Screen.width * 0.29f, 24f, Screen.width * 0.42f, 105f),
-                    "SPÅRVAGN RUSH\nMap data © OpenStreetMap contributors", title);
+                GUI.Box(new Rect(Screen.width * 0.27f, 24f, Screen.width * 0.46f, 132f),
+                    "SPÅRVAGN RUSH\nMap data © OpenStreetMap contributors\nElevation: Göteborgs Stad, 2022 (CC0)", title);
             }
 
             if (!sessionEnded) return;
