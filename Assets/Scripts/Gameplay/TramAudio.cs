@@ -4,47 +4,110 @@ namespace SparvagnRush.Gameplay
 {
     public sealed class TramAudio : MonoBehaviour
     {
+        [Header("Volume")]
+        [Range(0f, 1f)] public float masterVolume = 1f;
+        [Range(0f, 1f)] public float engineIdleVolume = 0.12f;
+        [Range(0f, 1f)] public float engineMaxVolume = 0.4f;
+        [Range(0f, 1f)] public float ambienceVolume = 0.25f;
+        [Range(0f, 1f)] public float successVolume = 0.6f;
+
         private TramController tram;
         private AudioSource engine;
         private AudioSource ambience;
+        private AudioSource sfx;
         private AudioClip successClip;
+        private bool initialized;
 
         public void Initialize(TramController controller)
         {
             tram = controller;
-            engine = gameObject.AddComponent<AudioSource>();
-            engine.clip = MakeEngineLoop();
-            engine.loop = true;
-            engine.volume = 0.07f;
-            engine.spatialBlend = 0.35f;
-            engine.Play();
+            if (initialized) return; // safe to call more than once
+            initialized = true;
 
-            ambience = gameObject.AddComponent<AudioSource>();
-            ambience.clip = MakeAmbientLoop();
-            ambience.loop = true;
-            ambience.volume = 0.1f;
-            ambience.Play();
+            engine = CreateSource(MakeEngineLoop(), true);
+            ambience = CreateSource(MakeAmbientLoop(), true);
+            sfx = CreateSource(null, false);
             successClip = MakeSuccessChime();
+
+            ApplyMix(); // set volumes before playing so there's no burst at full volume
+            engine.Play();
+            ambience.Play();
         }
 
-        public void PlaySuccess() => ambience.PlayOneShot(successClip, 0.65f);
+        public void PlaySuccess()
+        {
+            if (sfx == null || successClip == null) return;
+            sfx.PlayOneShot(successClip, successVolume * masterVolume);
+        }
+
+        private void Start()
+        {
+            // Fallback in case nothing called Initialize: hook up to the TramController on this object.
+            if (!initialized && TryGetComponent(out TramController controller))
+                Initialize(controller);
+
+            EnsureAudioListener();
+        }
 
         private void Update()
         {
-            if (tram == null || engine == null) return;
-            float speed01 = Mathf.Clamp01(Mathf.Abs(tram.Speed) / 24f);
+            if (!initialized) return;
+
+            // Restart the loops if something stopped them (audio device change, focus loss, etc.).
+            if (!engine.isPlaying) engine.Play();
+            if (!ambience.isPlaying) ambience.Play();
+
+            ApplyMix();
+        }
+
+        private void ApplyMix()
+        {
+            float speed01 = tram != null ? Mathf.Clamp01(Mathf.Abs(tram.Speed) / 24f) : 0f;
             engine.pitch = Mathf.Lerp(0.7f, 1.65f, speed01);
-            engine.volume = Mathf.Lerp(0.035f, 0.13f, speed01);
+            engine.volume = Mathf.Lerp(engineIdleVolume, engineMaxVolume, speed01) * masterVolume;
+            ambience.volume = ambienceVolume * masterVolume;
+        }
+
+        private AudioSource CreateSource(AudioClip clip, bool loop)
+        {
+            AudioSource source = gameObject.AddComponent<AudioSource>();
+            source.clip = clip;
+            source.loop = loop;
+            source.playOnAwake = false;
+            // Fully 2D: the follow camera sits ~50 units from the tram, so 3D distance falloff
+            // can make everything far quieter than the volume settings suggest.
+            source.spatialBlend = 0f;
+            return source;
+        }
+
+        // Without an AudioListener in the scene Unity plays nothing at all.
+        private void EnsureAudioListener()
+        {
+#if UNITY_2022_2_OR_NEWER
+            bool hasListener = FindFirstObjectByType<AudioListener>() != null;
+#else
+            bool hasListener = FindObjectOfType<AudioListener>() != null;
+#endif
+            if (hasListener) return;
+
+            GameObject host = Camera.main != null ? Camera.main.gameObject : gameObject;
+            host.AddComponent<AudioListener>();
         }
 
         private static AudioClip MakeEngineLoop()
         {
             const int sampleRate = 22050;
+            // Exactly 1 second, and every partial is a whole number of Hz, so the loop is seamless.
             var samples = new float[sampleRate];
             for (int i = 0; i < samples.Length; i++)
             {
-                float t = i / (float)sampleRate;
-                samples[i] = (Mathf.Sin(t * 2f * Mathf.PI * 52f) + Mathf.Sin(t * 2f * Mathf.PI * 104f) * 0.35f) * 0.18f;
+                float tau = i / (float)sampleRate * 2f * Mathf.PI;
+                float hum = Mathf.Sin(tau * 90f) * 0.40f
+                          + Mathf.Sin(tau * 180f) * 0.30f
+                          + Mathf.Sin(tau * 270f) * 0.22f
+                          + Mathf.Sin(tau * 450f) * 0.12f;
+                float whine = Mathf.Sin(tau * 900f) * 0.06f * (0.6f + 0.4f * Mathf.Sin(tau * 6f));
+                samples[i] = (hum + whine) * 0.55f;
             }
             return CreateClip("TramMotor", samples, sampleRate);
         }
@@ -60,8 +123,13 @@ namespace SparvagnRush.Gameplay
                 float t = i / (float)sampleRate;
                 float envelope = 0.5f - 0.5f * Mathf.Cos(Mathf.PI * 2f * t / seconds);
                 float value = 0f;
-                foreach (float note in notes) value += Mathf.Sin(t * 2f * Mathf.PI * note);
-                samples[i] = value * envelope * 0.025f;
+                foreach (float note in notes)
+                {
+                    float tau = t * 2f * Mathf.PI * note;
+                    // The octave partial keeps the pad audible on small speakers.
+                    value += Mathf.Sin(tau) + 0.5f * Mathf.Sin(tau * 2f);
+                }
+                samples[i] = value * envelope * 0.06f;
             }
             return CreateClip("CityAmbience", samples, sampleRate);
         }
@@ -69,14 +137,25 @@ namespace SparvagnRush.Gameplay
         private static AudioClip MakeSuccessChime()
         {
             const int sampleRate = 22050;
-            var samples = new float[sampleRate];
+            const float seconds = 1.2f;
+            var samples = new float[(int)(sampleRate * seconds)];
             for (int i = 0; i < samples.Length; i++)
             {
                 float t = i / (float)sampleRate;
-                float frequency = t < 0.25f ? 523.25f : 783.99f;
-                samples[i] = Mathf.Sin(t * 2f * Mathf.PI * frequency) * Mathf.Exp(-4f * t) * 0.25f;
+                samples[i] = (ChimeNote(t, 0f, 523.25f) + ChimeNote(t, 0.18f, 783.99f)) * 0.4f;
             }
             return CreateClip("SuccessChime", samples, sampleRate);
+        }
+
+        // One bell-like note: quick attack, exponential decay, a soft octave overtone.
+        private static float ChimeNote(float t, float start, float frequency)
+        {
+            float local = t - start;
+            if (local < 0f) return 0f;
+            float attack = Mathf.Clamp01(local / 0.005f);
+            float tone = Mathf.Sin(local * 2f * Mathf.PI * frequency)
+                       + 0.3f * Mathf.Sin(local * 4f * Mathf.PI * frequency);
+            return tone * attack * Mathf.Exp(-5f * local);
         }
 
         private static AudioClip CreateClip(string name, float[] samples, int sampleRate)
