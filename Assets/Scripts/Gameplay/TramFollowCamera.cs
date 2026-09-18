@@ -25,7 +25,6 @@ namespace SparvagnRush.Gameplay
 
         private float targetZoom = 1f;
         private float currentZoom = 1f;
-        private Vector3 framingForward = Vector3.forward;
 
         [Header("Reverse view flip")]
         [Tooltip("Seconds the 180 degree swing takes. Lower = snappier.")]
@@ -51,14 +50,9 @@ namespace SparvagnRush.Gameplay
             HandleZoom();
             HandleFlip();
 
-            // Frame off the heading alone. Following the tram's full rotation would roll
-            // the camera with every lean and spin it end over end once it derails.
-            Vector3 flatForward = target.forward;
-            flatForward.y = 0f;
-            if (flatForward.sqrMagnitude > 0.0001f) framingForward = flatForward.normalized;
-            Quaternion framing = Quaternion.LookRotation(framingForward, Vector3.up);
-
-            Vector3 desired = target.position + framing * (offset * currentZoom);
+            // Swing the offset around the tram's up axis (0 = behind the tram, 180 = in front of it).
+            Vector3 orbitOffset = Quaternion.Euler(0f, currentYaw, 0f) * (offset * currentZoom);
+            Vector3 desired = target.position + target.rotation * orbitOffset;
             transform.position = Vector3.SmoothDamp(transform.position, desired, ref velocity, 0.18f);
             transform.LookAt(target.position + Vector3.up * 2f);
             if (cameraComponent != null && tram != null)
