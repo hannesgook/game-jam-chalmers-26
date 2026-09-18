@@ -21,6 +21,7 @@ namespace SparvagnRush.Gameplay
         private float nextPassengerDelay;
         private bool carryingPassenger;
         private bool sessionEnded;
+        private bool derailed;
         private int score;
         private int combo;
         private float titleCardTime;
@@ -37,6 +38,13 @@ namespace SparvagnRush.Gameplay
         {
             if (network == null || tram == null) return;
             titleCardTime = Mathf.Max(0f, titleCardTime - Time.deltaTime);
+            if (!sessionEnded && tram.Derailed)
+            {
+                sessionEnded = true;
+                derailed = true;
+                if (marker != null) marker.SetActive(false);
+                return;
+            }
             if (sessionEnded)
             {
                 if (Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame) BeginSession();
@@ -99,7 +107,8 @@ namespace SparvagnRush.Gameplay
             sessionEnded = false;
             nextPassengerDelay = 0.5f;
             titleCardTime = 3.5f;
-            tram.enabled = true;
+            derailed = false;
+            tram.Respawn();
             if (marker != null) marker.SetActive(false);
         }
 
@@ -160,7 +169,18 @@ namespace SparvagnRush.Gameplay
             };
             string objective = carryingPassenger ? "DROP OFF — cyan beacon" : "PICK UP — yellow beacon";
             GUI.Box(new Rect(18, 18, 430, 126), $"SPÅRVAGN RUSH\nScore  {score:00000}    Combo  x{Mathf.Max(1, combo)}\nTime  {Mathf.CeilToInt(sessionTime):00}s    Job  {Mathf.CeilToInt(jobTime):00}s\n{objective}", hud);
-            GUI.Label(new Rect(20, Screen.height - 42, 620, 28), "W/S: drive   Hold A/D: turn left or right at the next junction", hud);
+            GUI.Label(new Rect(20, Screen.height - 42, 620, 28), "W/S: drive   Hold A/D: lean, and pick the next junction", hud);
+
+            if (!sessionEnded)
+            {
+                // Leaning is unreadable without seeing how much edge is left.
+                var meter = new Rect(18, 152, 430, 30);
+                float lean01 = Mathf.Clamp(tram.LeanAngle / Mathf.Max(1f, tram.FallAngle), -1f, 1f);
+                GUI.Box(meter, GUIContent.none, hud);
+                float centre = meter.x + meter.width * 0.5f;
+                GUI.Box(new Rect(centre + lean01 * (meter.width * 0.5f - 14f) - 11f, meter.y + 4f, 22f, 22f), GUIContent.none, hud);
+                GUI.Label(new Rect(meter.x + 8f, meter.y + 4f, 260f, 22f), $"LEAN {tram.LeanAngle,4:0}°", hud);
+            }
 
             if (titleCardTime > 0f)
             {
@@ -182,7 +202,7 @@ namespace SparvagnRush.Gameplay
                 normal = { textColor = Color.white }
             };
             GUI.Box(new Rect(Screen.width * 0.25f, Screen.height * 0.3f, Screen.width * 0.5f, Screen.height * 0.34f),
-                $"TIME'S UP!\n\nSCORE  {score}\n\nPress R to rush again", end);
+                $"{(derailed ? "DERAILED!" : "TIME'S UP!")}\n\nSCORE  {score}\n\nPress R to rush again", end);
         }
     }
 }

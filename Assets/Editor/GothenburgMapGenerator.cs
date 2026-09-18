@@ -298,7 +298,7 @@ namespace SparvagnRush.Editor
             }
 
             var generatedRoot = new GameObject(RootName);
-            CreateLayer(generatedRoot.transform, "Ground", CreateGroundMesh(), CreateMaterial("Ground", new Color(0.18f, 0.22f, 0.19f), true));
+            CreateLayer(generatedRoot.transform, "Ground", CreateGroundMesh(), CreateMaterial("Ground", new Color(0.18f, 0.22f, 0.19f), true), true);
             CreateLayer(generatedRoot.transform, "Water", waterMesh.Build("WaterMesh"), CreateMaterial("Water", new Color(0.06f, 0.38f, 0.58f)));
             CreateLayer(generatedRoot.transform, "Roads", roadMesh.Build("RoadMesh"), CreateMaterial("Roads", new Color(0.25f, 0.27f, 0.28f)));
             GameObject tracks = CreateLayer(generatedRoot.transform, "TramTracks", tramMesh.Build("TramTrackMesh"), CreateMaterial("TramTracks", new Color(0.96f, 0.72f, 0.12f)));
@@ -315,7 +315,7 @@ namespace SparvagnRush.Editor
             Debug.Log($"Generated Göteborg map from {Path.GetFileName(absolutePath)} using {(currentHeightField == null ? "flat ground" : "513x513 Göteborg elevation data")}: {tramFeatures} tram features ({trackPaths.Count} clipped paths), {roadFeatures} roads, {waterFeatures} water polygons.");
         }
 
-        private static GameObject CreateLayer(Transform parent, string name, Mesh mesh, Material material)
+        private static GameObject CreateLayer(Transform parent, string name, Mesh mesh, Material material, bool collidable = false)
         {
             string meshPath = $"{GeneratedAssetFolder}/{name}.asset";
             AssetDatabase.CreateAsset(mesh, meshPath);
@@ -323,6 +323,8 @@ namespace SparvagnRush.Editor
             layer.transform.SetParent(parent, false);
             layer.AddComponent<MeshFilter>().sharedMesh = mesh;
             layer.AddComponent<MeshRenderer>().sharedMaterial = material;
+            // Only the ground is collidable, so a derailed tram has somewhere to land.
+            if (collidable) layer.AddComponent<MeshCollider>().sharedMesh = mesh;
             return layer;
         }
 

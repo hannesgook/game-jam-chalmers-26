@@ -13,6 +13,25 @@ namespace SparvagnRush.Gameplay
 
         public void SetNetwork(TramTrackNetwork trackNetwork) => network = trackNetwork;
 
+        // A map generated before the ground carried a collider leaves a derailed tram
+        // with nothing to land on, so fit one at play time rather than making the map
+        // have to be rebuilt first. Regenerating bakes it in and skips the cook cost.
+        private void EnsureGroundCollider()
+        {
+            Transform ground = transform.Find("Ground");
+            if (ground == null || ground.GetComponent<MeshCollider>() != null) return;
+
+            MeshFilter filter = ground.GetComponent<MeshFilter>();
+            if (filter == null || filter.sharedMesh == null) return;
+            if (!filter.sharedMesh.isReadable)
+            {
+                Debug.LogWarning("Ground mesh is not readable, so no collider could be fitted. Run Tools > Göteborg > Generate Map.");
+                return;
+            }
+
+            ground.gameObject.AddComponent<MeshCollider>().sharedMesh = filter.sharedMesh;
+        }
+
         private void Start()
         {
             Application.runInBackground = true;
@@ -22,6 +41,8 @@ namespace SparvagnRush.Gameplay
                 Debug.LogError("Spårvagn Rush needs a generated tram network. Run Tools > Göteborg > Generate Map.");
                 return;
             }
+
+            EnsureGroundCollider();
 
             Vector3 requestedStart = network.Graph[0].position;
             GameObject tram_obj = Resources.Load<GameObject>("Prefabs/tram");

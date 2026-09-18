@@ -27,6 +27,35 @@ namespace SparvagnRush.Gameplay
         [Tooltip("How far ahead the nose aims, which sweeps the body through a corner instead of pivoting it on the node.")]
         [SerializeField] private float headingLookAhead = 6f;
 
+        [Header("Balance")]
+        [Tooltip("How hard the world fights to tip the tram over. Scales both the sideways throw of a curve and how fast a lean runs away. Lower is more forgiving; 1 is the physically honest value.")]
+        [SerializeField] private float balanceSensitivity = 0.25f;
+        [Tooltip("Height of the centre of mass above the rails. Lower topples faster and is twitchier to hold.")]
+        [SerializeField] private float centreOfMassHeight = 1.8f;
+        [Tooltip("Degrees per second squared of lean the driver can force by holding A or D.")]
+        [SerializeField] private float leanAuthority = 320f;
+        [Tooltip("How fast lean movement bleeds away. Higher is easier to hold steady.")]
+        [SerializeField] private float leanDamping = 2f;
+        [Tooltip("Lean past this and the tram is gone.")]
+        [SerializeField] private float fallAngle = 35f;
+        [Tooltip("Length of track read to work out the curve the tram is entering.")]
+        [SerializeField] private float curvatureSample = 8f;
+
+        [Header("Derailment")]
+        [Tooltip("Sideways speed the wreck is thrown at, the way it was falling.")]
+        [SerializeField] private float derailSidewaysSpeed = 9f;
+        [Tooltip("Upward kick as the wheels leave the rail.")]
+        [SerializeField] private float derailLift = 5f;
+        [Tooltip("Degrees per second the wreck tumbles at.")]
+        [SerializeField] private float derailSpin = 320f;
+        [SerializeField] private float derailMass = 1200f;
+        [Tooltip("How far the underside of the wreck may sink into the ground before it is pushed back out.")]
+        [SerializeField] private float wreckSinkTolerance = 0.5f;
+
+        // Terrain tops out around 45 m, but a wreck can be thrown well above that.
+        private const float GroundProbeHeight = 300f;
+        private static readonly RaycastHit[] GroundHits = new RaycastHit[8];
+
         // 45 m of look-ahead is ~18 nodes on densified track, ~4 at raw OSM node spacing.
         private const int LookAheadNodeLimit = 48;
 
@@ -37,12 +66,22 @@ namespace SparvagnRush.Gameplay
         private float speed;
         private int junctionChoice;
         private bool headingInitialised;
+        private Quaternion trackRotation = Quaternion.identity;
+        private float leanAngle;
+        private float leanVelocity;
+        private bool derailed;
+        private float derailFloor;
+        private Vector3 startRequest;
 
         public float Speed => speed;
+        public float LeanAngle => leanAngle;
+        public float FallAngle => fallAngle;
+        public bool Derailed => derailed;
 
         public void Initialize(TramTrackNetwork trackNetwork, Vector3 requestedStart)
         {
             network = trackNetwork;
+            startRequest = requestedStart;
             TramTrackNetwork.ClosestEdge edge = network.FindClosestEdge(requestedStart);
             currentNode = edge.A;
             targetNode = edge.B;
@@ -53,6 +92,7 @@ namespace SparvagnRush.Gameplay
 
         private void Update()
         {
+            if (derailed) return;
             if (network == null || network.Graph.Count < 2) return;
             Keyboard keyboard = Keyboard.current;
             float throttle = 0f;
@@ -78,6 +118,8 @@ namespace SparvagnRush.Gameplay
 
             edgeProgress += speed * Time.deltaTime;
             AdvanceAcrossNodes();
+            UpdateLean(junctionChoice, Time.deltaTime);
+            if (derailed) return;
             ApplyTransform();
         }
 
@@ -249,6 +291,144 @@ namespace SparvagnRush.Gameplay
             return graph[reached].position;
         }
 
+        // The tram is an inverted pendulum sitting on one rail line: gravity tips it
+        // further over the moment it leaves upright, a curve throws it towards the
+        // outside, and shifting weight with A/D is the only thing holding it up.
+        private void UpdateLean(float steer, float deltaTime)
+        {
+            if (derailed || deltaTime <= 0f) return;
+
+            float sensitivity = Mathf.Max(0f, balanceSensitivity);
+            // Softening the throw lowers the lean a curve demands; softening the whole
+            // term slows how fast a wobble runs away. One knob, both effects.
+            float lateral = LateralAcceleration() * sensitivity;
+            float leanRadians = leanAngle * Mathf.Deg2Rad;
+            float toppling = (Physics.gravity.magnitude * Mathf.Sin(leanRadians) - lateral * Mathf.Cos(leanRadians))
+                             / Mathf.Max(0.2f, centreOfMassHeight) * Mathf.Rad2Deg * sensitivity;
+
+            leanVelocity += (toppling + steer * leanAuthority - leanDamping * leanVelocity) * deltaTime;
+            leanAngle += leanVelocity * deltaTime;
+            if (Mathf.Abs(leanAngle) > fallAngle) Derail();
+        }
+
+        // Sideways acceleration the rails are about to impose, positive into a right turn.
+        // Read slightly ahead of the tram so the curve is felt as it is entered.
+        private float LateralAcceleration()
+        {
+            float half = Mathf.Max(1f, curvatureSample * 0.5f);
+            Vector3 first = TrackPointAhead(half) - TrackPointAhead(0f);
+            Vector3 second = TrackPointAhead(half * 2f) - TrackPointAhead(half);
+            first.y = 0f;
+            second.y = 0f;
+            if (first.sqrMagnitude < 0.01f || second.sqrMagnitude < 0.01f) return 0f;
+
+            float turn = Vector3.SignedAngle(first, second, Vector3.up) * Mathf.Deg2Rad;
+            return speed * speed * (turn / half);
+        }
+
+        private void Derail()
+        {
+            derailed = true;
+            leanAngle = Mathf.Clamp(leanAngle, -fallAngle, fallAngle);
+            float side = Mathf.Sign(leanAngle);
+            ApplyTransform();
+
+            Bounds local = LocalBounds();
+            BoxCollider box = gameObject.AddComponent<BoxCollider>();
+            box.center = local.center;
+            box.size = local.size;
+
+            Rigidbody body = gameObject.AddComponent<Rigidbody>();
+            body.mass = derailMass;
+            // Carries the momentum it had, thrown the way it was already falling.
+            body.linearVelocity = transform.forward * speed
+                                  + transform.right * (side * derailSidewaysSpeed)
+                                  + Vector3.up * derailLift;
+            body.angularVelocity = transform.forward * (-side * derailSpin * Mathf.Deg2Rad);
+            // A wreck thrown at 24 m/s clears half a metre per physics step, which is
+            // plenty to pass straight through a mesh collider that has no thickness.
+            body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+
+            derailFloor = transform.position.y;
+            speed = 0f;
+        }
+
+        private void FixedUpdate()
+        {
+            if (!derailed || !TryGetComponent(out Rigidbody body)) return;
+            if (!TryGetComponent(out Collider hull)) return;
+
+            // Measured off the hull rather than the pivot, so it works wherever the
+            // model's origin sits, and it lifts by exactly how far the underside has
+            // sunk. Only ever a rescue: a wreck resting on the surface is left alone.
+            Bounds bounds = hull.bounds;
+            float ground = GroundHeightBelow(bounds.center);
+            if (bounds.min.y >= ground - wreckSinkTolerance) return;
+
+            Vector3 position = body.position;
+            position.y += ground - bounds.min.y;
+            body.position = position;
+            Vector3 velocity = body.linearVelocity;
+            if (velocity.y < 0f) velocity.y = 0f;
+            body.linearVelocity = velocity;
+        }
+
+        // Falls back to the height of the rails it came off, so the wreck still has a
+        // floor on a map generated before the ground had a collider.
+        private float GroundHeightBelow(Vector3 position)
+        {
+            int count = Physics.RaycastNonAlloc(
+                position + Vector3.up * GroundProbeHeight, Vector3.down, GroundHits, GroundProbeHeight * 2f);
+            float highest = float.NegativeInfinity;
+            for (int i = 0; i < count; i++)
+            {
+                if (GroundHits[i].collider.transform.IsChildOf(transform)) continue;
+                if (GroundHits[i].point.y > highest) highest = GroundHits[i].point.y;
+            }
+            return float.IsNegativeInfinity(highest) ? derailFloor : highest;
+        }
+
+        public void Respawn()
+        {
+            if (TryGetComponent(out Rigidbody body))
+            {
+                // Stops physics writing to the transform in the frames before it is gone.
+                body.isKinematic = true;
+                Destroy(body);
+            }
+            if (TryGetComponent(out BoxCollider box)) Destroy(box);
+
+            derailed = false;
+            leanAngle = 0f;
+            leanVelocity = 0f;
+            speed = 0f;
+            junctionChoice = 0;
+            headingInitialised = false;
+            enabled = true;
+            Initialize(network, startRequest);
+        }
+
+        private Bounds LocalBounds()
+        {
+            Renderer[] renderers = GetComponentsInChildren<Renderer>();
+            if (renderers.Length == 0) return new Bounds(Vector3.zero, new Vector3(3f, 3f, 9f));
+
+            var bounds = new Bounds(transform.InverseTransformPoint(renderers[0].bounds.center), Vector3.zero);
+            foreach (Renderer renderer in renderers)
+            {
+                Bounds world = renderer.bounds;
+                for (int corner = 0; corner < 8; corner++)
+                {
+                    var point = new Vector3(
+                        (corner & 1) == 0 ? world.min.x : world.max.x,
+                        (corner & 2) == 0 ? world.min.y : world.max.y,
+                        (corner & 4) == 0 ? world.min.z : world.max.z);
+                    bounds.Encapsulate(transform.InverseTransformPoint(point));
+                }
+            }
+            return bounds;
+        }
+
         private float CurrentEdgeLength() => Vector3.Distance(network.Graph[currentNode].position, network.Graph[targetNode].position);
 
         private void ApplyTransform()
@@ -267,10 +447,12 @@ namespace SparvagnRush.Gameplay
             if (direction.sqrMagnitude < 0.001f) return;
 
             Quaternion desired = Quaternion.LookRotation(direction, Vector3.up);
-            transform.rotation = headingInitialised
-                ? Quaternion.RotateTowards(transform.rotation, desired, maximumYawRate * Time.deltaTime)
+            trackRotation = headingInitialised
+                ? Quaternion.RotateTowards(trackRotation, desired, maximumYawRate * Time.deltaTime)
                 : desired;
             headingInitialised = true;
+            // Roll sits outside the slew so leaning never drags the heading with it.
+            transform.rotation = trackRotation * Quaternion.Euler(0f, 0f, -leanAngle);
         }
     }
 }
