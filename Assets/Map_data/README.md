@@ -10,6 +10,26 @@ Spårvagn Rush game-jam project.
 
 The game must display: **Map data © OpenStreetMap contributors**.
 
+## Stops, stores, and labels
+
+`map_details.geojson` contains named tram stops, shops, amenities, tourist
+features, and offices. The map generator turns these into billboard labels and
+physical tram-stop signs. Refresh it with **Tools > Göteborg > Download Stops
+and Store Names**, or run `python Tools/FetchMapDetails.py`, then regenerate the
+map. Coverage follows what contributors have mapped in OpenStreetMap.
+
+Named building footprints are labelled automatically too, so they do not need
+to be duplicated in the detail file.
+
+## Optional aerial ground image
+
+Put a legally licensed, north-up image covering exactly the map bounds
+`57.695, 11.965` to `57.710, 11.985` at `Assets/Map_data/aerial.png`, then run
+**Tools > Göteborg > Generate Map**. The terrain UVs are georeferenced to those
+bounds and the generator will use the image automatically. Keep the provider's
+required attribution in the game. Do not copy tiles from consumer map websites:
+their terms commonly prohibit repackaging them in a game.
+
 ## Buildings
 
 `buildings.geojson` holds the 924 building footprints inside the same window,

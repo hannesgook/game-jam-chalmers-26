@@ -18,6 +18,7 @@ namespace SparvagnRush.Editor
         private const string DefaultSource = "Assets/Map_data/export.geojson";
         private const string DefaultHeightSource = "Assets/Map_data/gothenburg_height_513.bytes";
         private const string DefaultBuildingSource = "Assets/Map_data/buildings.geojson";
+        private const string OptionalAerialSource = "Assets/Map_data/aerial.png";
         // Matches the heightmap grid exactly so ground vertices land on real samples;
         // a coarser grid interpolates across them and lets roads sink into hillsides.
         private const int GroundMeshResolution = 513;
@@ -109,7 +110,11 @@ namespace SparvagnRush.Editor
             // so nothing would ever rebuild it without asking after this one too.
             bool buildingUpgradeNeeded = File.Exists(Path.Combine(projectRoot, DefaultBuildingSource)) &&
                 AssetDatabase.LoadAssetAtPath<Mesh>($"{GeneratedAssetFolder}/Buildings.asset") == null;
-            if (generatedAssetsExist && !elevationUpgradeNeeded && !buildingUpgradeNeeded) return;
+            bool detailUpgradeNeeded = File.Exists(Path.Combine(projectRoot, DefaultDetailsSource)) &&
+                GameObject.Find(RootName)?.transform.Find("MapDetails") == null;
+            Mesh buildingMesh = AssetDatabase.LoadAssetAtPath<Mesh>($"{GeneratedAssetFolder}/Buildings.asset");
+            bool facadeUpgradeNeeded = buildingMesh != null && (buildingMesh.uv == null || buildingMesh.uv.Length != buildingMesh.vertexCount);
+            if (generatedAssetsExist && !elevationUpgradeNeeded && !buildingUpgradeNeeded && !detailUpgradeNeeded && !facadeUpgradeNeeded) return;
 
             EditorApplication.delayCall += () =>
             {
@@ -133,6 +138,7 @@ namespace SparvagnRush.Editor
         {
             public readonly List<Vector3> Vertices = new();
             public readonly List<int> Triangles = new();
+            public readonly List<Vector2> UVs = new();
 
             // One continuous strip with mitred joints. Emitting a loose quad per segment
             // instead leaves a wedge of open ground on the outside of every bend, which
@@ -159,6 +165,9 @@ namespace SparvagnRush.Editor
                     Vector3 side = MitredOffset(incoming.normalized, outgoing.normalized, halfWidth);
                     Vertices.Add(points[i] - side);
                     Vertices.Add(points[i] + side);
+                    float along = i == 0 ? 0f : Vector3.Distance(points[0], points[i]);
+                    UVs.Add(new Vector2(0f, along * 0.1f));
+                    UVs.Add(new Vector2(1f, along * 0.1f));
                 }
 
                 for (int i = 0; i < points.Count - 1; i++)
@@ -204,7 +213,11 @@ namespace SparvagnRush.Editor
 
                 List<int> localTriangles = Triangulate(projected);
                 int start = Vertices.Count;
-                Vertices.AddRange(projected);
+                foreach (Vector3 point in projected)
+                {
+                    Vertices.Add(point);
+                    UVs.Add(new Vector2(point.x, point.z) * 0.02f);
+                }
                 foreach (int index in localTriangles) Triangles.Add(start + index);
             }
 
@@ -221,6 +234,12 @@ namespace SparvagnRush.Editor
                     Vertices.Add(new Vector3(b.x, baseY, b.z));
                     Vertices.Add(new Vector3(b.x, topY, b.z));
                     Vertices.Add(new Vector3(a.x, topY, a.z));
+                    float width = Vector3.Distance(a, b) / 3.2f;
+                    float height = (topY - baseY) / LevelHeight;
+                    UVs.Add(new Vector2(0f, 0f));
+                    UVs.Add(new Vector2(width, 0f));
+                    UVs.Add(new Vector2(width, height));
+                    UVs.Add(new Vector2(0f, height));
                     Triangles.Add(corner);
                     Triangles.Add(corner + 2);
                     Triangles.Add(corner + 3);
@@ -240,7 +259,11 @@ namespace SparvagnRush.Editor
                 for (int i = 0; i < outline.Count; i++) flat.Add(new Vector3(outline[i].x, y, outline[i].z));
                 List<int> localTriangles = Triangulate(flat);
                 int start = Vertices.Count;
-                Vertices.AddRange(flat);
+                foreach (Vector3 point in flat)
+                {
+                    Vertices.Add(point);
+                    UVs.Add(new Vector2(point.x, point.z) * 0.025f);
+                }
                 foreach (int index in localTriangles) Triangles.Add(start + index);
             }
 
@@ -250,6 +273,7 @@ namespace SparvagnRush.Editor
                 if (Vertices.Count > 65535) mesh.indexFormat = IndexFormat.UInt32;
                 mesh.SetVertices(Vertices);
                 mesh.SetTriangles(Triangles, 0);
+                if (UVs.Count == Vertices.Count) mesh.SetUVs(0, UVs);
                 mesh.RecalculateNormals();
                 mesh.RecalculateBounds();
                 return mesh;
@@ -351,25 +375,26 @@ namespace SparvagnRush.Editor
             int buildingCount = AppendBuildings(buildingMesh, roofMesh);
 
             var generatedRoot = new GameObject(RootName);
-            CreateLayer(generatedRoot.transform, "Ground", CreateGroundMesh(), CreateMaterial("Ground", new Color(0.18f, 0.22f, 0.19f), true), true);
+            CreateLayer(generatedRoot.transform, "Ground", CreateGroundMesh(), CreateGroundMaterial(), true);
             CreateLayer(generatedRoot.transform, "Water", waterMesh.Build("WaterMesh"), CreateMaterial("Water", new Color(0.06f, 0.38f, 0.58f)));
             CreateLayer(generatedRoot.transform, "Roads", roadMesh.Build("RoadMesh"), CreateMaterial("Roads", new Color(0.25f, 0.27f, 0.28f)));
             // Walls and roofs are split so the city reads as blocks from the tram window;
             // both are lit, because an unlit extrusion is a silhouette with no corners.
-            CreateLayer(generatedRoot.transform, "Buildings", buildingMesh.Build("BuildingMesh"), CreateMaterial("Buildings", new Color(0.62f, 0.58f, 0.53f), true), true);
+            CreateLayer(generatedRoot.transform, "Buildings", buildingMesh.Build("BuildingMesh"), CreateFacadeMaterial(), true);
             CreateLayer(generatedRoot.transform, "BuildingRoofs", roofMesh.Build("BuildingRoofMesh"), CreateMaterial("BuildingRoofs", new Color(0.29f, 0.28f, 0.3f), true), true);
             GameObject tracks = CreateLayer(generatedRoot.transform, "TramTracks", tramMesh.Build("TramTrackMesh"), CreateMaterial("TramTracks", new Color(0.96f, 0.72f, 0.12f)));
             TramTrackNetwork network = tracks.AddComponent<TramTrackNetwork>();
             network.ReplacePaths(trackPaths);
             generatedRoot.AddComponent<SparvagnRushBootstrap>().SetNetwork(network);
             CreateLandmark(generatedRoot.transform);
+            int detailCount = CreateMapDetails(generatedRoot.transform);
 
             EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
             Selection.activeGameObject = generatedRoot;
             AssetDatabase.SaveAssets();
             if (EditorSceneManager.GetActiveScene().IsValid() && !string.IsNullOrEmpty(EditorSceneManager.GetActiveScene().path))
                 EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene());
-            Debug.Log($"Generated Göteborg map from {Path.GetFileName(absolutePath)} using {(currentHeightField == null ? "flat ground" : "513x513 Göteborg elevation data")}: {tramFeatures} tram features ({trackPaths.Count} clipped paths), {roadFeatures} roads, {waterFeatures} water polygons, {buildingCount} buildings.");
+            Debug.Log($"Generated Göteborg map from {Path.GetFileName(absolutePath)} using {(currentHeightField == null ? "flat ground" : "513x513 Göteborg elevation data")}: {tramFeatures} tram features ({trackPaths.Count} clipped paths), {roadFeatures} roads, {waterFeatures} water polygons, {buildingCount} buildings, {detailCount} named map details.");
         }
 
         private static GameObject CreateLayer(Transform parent, string name, Mesh mesh, Material material, bool collidable = false)
@@ -399,6 +424,53 @@ namespace SparvagnRush.Editor
             return material;
         }
 
+        private static Material CreateGroundMaterial()
+        {
+            Material material = CreateMaterial("Ground", new Color(0.32f, 0.38f, 0.29f), true);
+            Texture2D aerial = AssetDatabase.LoadAssetAtPath<Texture2D>(OptionalAerialSource);
+            if (aerial == null) return material;
+            material.mainTexture = aerial;
+            if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", aerial);
+            material.color = Color.white;
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", Color.white);
+            return material;
+        }
+
+        private static Material CreateFacadeMaterial()
+        {
+            var texture = new Texture2D(96, 96, TextureFormat.RGBA32, false)
+            {
+                name = "ProceduralFacade",
+                wrapMode = TextureWrapMode.Repeat,
+                filterMode = FilterMode.Bilinear,
+            };
+            var pixels = new Color[96 * 96];
+            Color stone = new(0.63f, 0.58f, 0.51f);
+            for (int y = 0; y < 96; y++)
+            for (int x = 0; x < 96; x++)
+            {
+                float mortar = (y % 24 < 2 || x % 48 < 1) ? 0.82f : 1f;
+                float noise = ((x * 17 + y * 31) % 19) / 250f;
+                Color color = stone * (mortar - noise);
+                bool window = x % 48 >= 12 && x % 48 < 35 && y % 24 >= 6 && y % 24 < 20;
+                if (window)
+                {
+                    float glint = (x + y) % 13 == 0 ? 0.12f : 0f;
+                    color = new Color(0.13f + glint, 0.22f + glint, 0.28f + glint);
+                }
+                pixels[y * 96 + x] = color;
+            }
+            texture.SetPixels(pixels);
+            texture.Apply();
+            AssetDatabase.CreateAsset(texture, $"{GeneratedAssetFolder}/ProceduralFacade.asset");
+
+            Material material = CreateMaterial("Buildings", Color.white, true);
+            material.mainTexture = texture;
+            if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", texture);
+            if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", 0.18f);
+            return material;
+        }
+
         private static void CreateLandmark(Transform parent)
         {
             GameObject tower = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -425,6 +497,7 @@ namespace SparvagnRush.Editor
                     new Vector3(northEast.x, 0f, southWest.z)
                 };
                 mesh.triangles = new[] { 0, 1, 2, 0, 2, 3 };
+                mesh.uv = new[] { Vector2.zero, Vector2.up, Vector2.one, Vector2.right };
                 mesh.RecalculateNormals();
                 mesh.RecalculateBounds();
                 return mesh;
@@ -433,6 +506,7 @@ namespace SparvagnRush.Editor
             int resolution = GroundMeshResolution;
             var vertices = new Vector3[resolution * resolution];
             var triangles = new int[(resolution - 1) * (resolution - 1) * 6];
+            var uv = new Vector2[resolution * resolution];
             for (int z = 0; z < resolution; z++)
             {
                 double latitude = South + (North - South) * z / (resolution - 1);
@@ -440,6 +514,7 @@ namespace SparvagnRush.Editor
                 {
                     double longitude = West + (East - West) * x / (resolution - 1);
                     vertices[z * resolution + x] = Project(new GeoPoint(longitude, latitude), 0f);
+                    uv[z * resolution + x] = new Vector2((float)x / (resolution - 1), (float)z / (resolution - 1));
                 }
             }
 
@@ -460,6 +535,7 @@ namespace SparvagnRush.Editor
             mesh.indexFormat = IndexFormat.UInt32;
             mesh.vertices = vertices;
             mesh.triangles = triangles;
+            mesh.uv = uv;
             mesh.RecalculateNormals();
             mesh.RecalculateBounds();
             return mesh;

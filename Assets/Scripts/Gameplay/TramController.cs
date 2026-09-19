@@ -36,6 +36,13 @@ namespace SparvagnRush.Gameplay
         [SerializeField] private float leanAuthority = 320f;
         [Tooltip("How fast lean movement bleeds away. Higher is easier to hold steady.")]
         [SerializeField] private float leanDamping = 2f;
+        [Tooltip("Gentle automatic correction near upright. It removes tiny oscillations without playing the hard corners for you.")]
+        [SerializeField] private float stabilityAssist = 42f;
+        [Range(0f, 1f)]
+        [Tooltip("Fraction of curve force automatically compensated. 0 is fully manual; 1 perfectly counters a steady curve.")]
+        [SerializeField] private float curveBalanceAssist = 0.22f;
+        [Tooltip("How quickly A/D lean input ramps in and out.")]
+        [SerializeField] private float leanInputResponse = 7f;
         [Tooltip("Lean past this and the tram is gone.")]
         [SerializeField] private float fallAngle = 35f;
         [Tooltip("Length of track read to work out the curve the tram is entering.")]
@@ -74,6 +81,7 @@ namespace SparvagnRush.Gameplay
         private Quaternion trackRotation = Quaternion.identity;
         private float leanAngle;
         private float leanVelocity;
+        private float smoothedLeanInput;
         private bool derailed;
         // The prefab's own collider, resolved on derail and used to measure the wreck.
         private Collider hull;
@@ -125,7 +133,8 @@ namespace SparvagnRush.Gameplay
 
             edgeProgress += speed * Time.deltaTime;
             AdvanceAcrossNodes();
-            UpdateLean(junctionChoice, Time.deltaTime);
+            smoothedLeanInput = Mathf.MoveTowards(smoothedLeanInput, junctionChoice, leanInputResponse * Time.deltaTime);
+            UpdateLean(smoothedLeanInput, Time.deltaTime);
             if (derailed) return;
             ApplyTransform();
         }
@@ -308,12 +317,17 @@ namespace SparvagnRush.Gameplay
             float sensitivity = Mathf.Max(0f, balanceSensitivity);
             // Softening the throw lowers the lean a curve demands; softening the whole
             // term slows how fast a wobble runs away. One knob, both effects.
-            float lateral = LateralAcceleration() * sensitivity;
+            float lateral = LateralAcceleration() * sensitivity * (1f - curveBalanceAssist);
             float leanRadians = leanAngle * Mathf.Deg2Rad;
             float toppling = (Physics.gravity.magnitude * Mathf.Sin(leanRadians) - lateral * Mathf.Cos(leanRadians))
                              / Mathf.Max(0.2f, centreOfMassHeight) * Mathf.Rad2Deg * sensitivity;
 
-            leanVelocity += (toppling + steer * leanAuthority - leanDamping * leanVelocity) * deltaTime;
+            // Only assists the calm centre of the meter. Past half way the player still
+            // has to commit to the correction, preserving the risk/reward mechanic.
+            float safeZone = Mathf.Clamp01(1f - Mathf.Abs(leanAngle) / Mathf.Max(1f, fallAngle * 0.55f));
+            float restoring = -leanAngle / Mathf.Max(1f, fallAngle) * stabilityAssist * safeZone;
+
+            leanVelocity += (toppling + restoring + steer * leanAuthority - leanDamping * leanVelocity) * deltaTime;
             leanAngle += leanVelocity * deltaTime;
             if (Mathf.Abs(leanAngle) > fallAngle) Derail();
         }
@@ -414,6 +428,7 @@ namespace SparvagnRush.Gameplay
             derailed = false;
             leanAngle = 0f;
             leanVelocity = 0f;
+            smoothedLeanInput = 0f;
             speed = 0f;
             junctionChoice = 0;
             headingInitialised = false;

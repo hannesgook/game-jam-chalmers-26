@@ -169,7 +169,7 @@ namespace SparvagnRush.Gameplay
             };
             string objective = carryingPassenger ? "DROP OFF — cyan beacon" : "PICK UP — yellow beacon";
             GUI.Box(new Rect(18, 18, 430, 126), $"SPÅRVAGN RUSH\nScore  {score:00000}    Combo  x{Mathf.Max(1, combo)}\nTime  {Mathf.CeilToInt(sessionTime):00}s    Job  {Mathf.CeilToInt(jobTime):00}s\n{objective}", hud);
-            GUI.Label(new Rect(20, Screen.height - 42, 620, 28), "W/S: drive   Hold A/D: lean, and pick the next junction", hud);
+            GUI.Label(new Rect(20, Screen.height - 42, 850, 28), "W/S: drive   Hold A/D: lean + choose junction   RMB drag: orbit   MMB: reset camera", hud);
 
             if (!sessionEnded)
             {

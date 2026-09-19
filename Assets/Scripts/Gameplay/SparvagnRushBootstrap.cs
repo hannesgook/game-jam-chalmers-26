@@ -73,9 +73,14 @@ namespace SparvagnRush.Gameplay
                 camera = cameraObject.AddComponent<Camera>();
             }
             camera.fieldOfView = 58f;
-            camera.clearFlags = CameraClearFlags.SolidColor;
-            camera.backgroundColor = new Color(0.08f, 0.12f, 0.16f);
+            camera.clearFlags = CameraClearFlags.Skybox;
+            camera.backgroundColor = new Color(0.48f, 0.67f, 0.82f);
+            camera.allowHDR = true;
+            camera.nearClipPlane = 0.15f;
+            camera.farClipPlane = 2200f;
             camera.gameObject.AddComponent<TramFollowCamera>().SetTarget(tram.transform);
+
+            ConfigureEnvironment();
 
             TramGameManager manager = gameObject.AddComponent<TramGameManager>();
             manager.Initialize(network, tram);
@@ -90,6 +95,30 @@ namespace SparvagnRush.Gameplay
         {
             Shader shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
             return new Material(shader) { color = color };
+        }
+
+        private static void ConfigureEnvironment()
+        {
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
+            RenderSettings.ambientSkyColor = new Color(0.58f, 0.68f, 0.78f);
+            RenderSettings.ambientEquatorColor = new Color(0.42f, 0.46f, 0.47f);
+            RenderSettings.ambientGroundColor = new Color(0.19f, 0.20f, 0.18f);
+            RenderSettings.fog = true;
+            RenderSettings.fogMode = FogMode.ExponentialSquared;
+            RenderSettings.fogColor = new Color(0.63f, 0.72f, 0.78f);
+            RenderSettings.fogDensity = 0.00075f;
+
+            Light sun = FindFirstObjectByType<Light>();
+            if (sun == null)
+            {
+                var sunObject = new GameObject("Göteborg Sun");
+                sun = sunObject.AddComponent<Light>();
+            }
+            sun.type = LightType.Directional;
+            sun.color = new Color(1f, 0.93f, 0.82f);
+            sun.intensity = 1.15f;
+            sun.shadows = LightShadows.Soft;
+            sun.transform.rotation = Quaternion.Euler(42f, -28f, 0f);
         }
 
 #if DEVELOPMENT_BUILD || UNITY_EDITOR
