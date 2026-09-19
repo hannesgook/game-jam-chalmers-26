@@ -18,7 +18,8 @@ namespace SparvagnRush.Editor
         private const string DefaultSource = "Assets/Map_data/export.geojson";
         private const string DefaultHeightSource = "Assets/Map_data/gothenburg_height_513.bytes";
         private const string DefaultBuildingSource = "Assets/Map_data/buildings.geojson";
-        private const string OptionalAerialSource = "Assets/Map_data/aerial.png";
+        private const string OptionalAerialSource = "Assets/Map_data/aerial.jpg";
+        private const string ProceduralGroundAsset = "Assets/GeneratedCity/ProceduralGround.asset";
         // Matches the heightmap grid exactly so ground vertices land on real samples;
         // a coarser grid interpolates across them and lets roads sink into hillsides.
         private const int GroundMeshResolution = 513;
@@ -112,9 +113,23 @@ namespace SparvagnRush.Editor
                 AssetDatabase.LoadAssetAtPath<Mesh>($"{GeneratedAssetFolder}/Buildings.asset") == null;
             bool detailUpgradeNeeded = File.Exists(Path.Combine(projectRoot, DefaultDetailsSource)) &&
                 GameObject.Find(RootName)?.transform.Find("MapDetails") == null;
+            string scenePath = EditorSceneManager.GetActiveScene().path;
+            bool detailSourceNewer = !string.IsNullOrEmpty(scenePath) &&
+                File.Exists(Path.Combine(projectRoot, DefaultDetailsSource)) &&
+                File.GetLastWriteTimeUtc(Path.Combine(projectRoot, DefaultDetailsSource)) >
+                File.GetLastWriteTimeUtc(Path.Combine(projectRoot, scenePath));
             Mesh buildingMesh = AssetDatabase.LoadAssetAtPath<Mesh>($"{GeneratedAssetFolder}/Buildings.asset");
             bool facadeUpgradeNeeded = buildingMesh != null && (buildingMesh.uv == null || buildingMesh.uv.Length != buildingMesh.vertexCount);
-            if (generatedAssetsExist && !elevationUpgradeNeeded && !buildingUpgradeNeeded && !detailUpgradeNeeded && !facadeUpgradeNeeded) return;
+            bool groundTextureUpgradeNeeded = !File.Exists(Path.Combine(projectRoot, OptionalAerialSource)) &&
+                AssetDatabase.LoadAssetAtPath<Texture2D>(ProceduralGroundAsset) == null;
+            Texture2D aerialAsset = AssetDatabase.LoadAssetAtPath<Texture2D>(OptionalAerialSource);
+            Material groundMaterial = AssetDatabase.LoadAssetAtPath<Material>($"{GeneratedAssetFolder}/Ground.mat");
+            bool aerialUpgradeNeeded = aerialAsset != null && groundMaterial != null && groundMaterial.mainTexture != aerialAsset;
+            Material roofMaterial = AssetDatabase.LoadAssetAtPath<Material>($"{GeneratedAssetFolder}/BuildingRoofs.mat");
+            bool roofAerialUpgradeNeeded = aerialAsset != null && roofMaterial != null && roofMaterial.mainTexture != aerialAsset;
+            if (generatedAssetsExist && !elevationUpgradeNeeded && !buildingUpgradeNeeded && !detailUpgradeNeeded &&
+                !detailSourceNewer && !facadeUpgradeNeeded && !groundTextureUpgradeNeeded && !aerialUpgradeNeeded &&
+                !roofAerialUpgradeNeeded) return;
 
             EditorApplication.delayCall += () =>
             {
@@ -262,7 +277,9 @@ namespace SparvagnRush.Editor
                 foreach (Vector3 point in flat)
                 {
                     Vertices.Add(point);
-                    UVs.Add(new Vector2(point.x, point.z) * 0.025f);
+                    // Project the orthophoto onto the roof at the same geographic
+                    // coordinate used by the terrain below it.
+                    UVs.Add(MapUV(point));
                 }
                 foreach (int index in localTriangles) Triangles.Add(start + index);
             }
@@ -381,13 +398,13 @@ namespace SparvagnRush.Editor
             // Walls and roofs are split so the city reads as blocks from the tram window;
             // both are lit, because an unlit extrusion is a silhouette with no corners.
             CreateLayer(generatedRoot.transform, "Buildings", buildingMesh.Build("BuildingMesh"), CreateFacadeMaterial(), true);
-            CreateLayer(generatedRoot.transform, "BuildingRoofs", roofMesh.Build("BuildingRoofMesh"), CreateMaterial("BuildingRoofs", new Color(0.29f, 0.28f, 0.3f), true), true);
+            CreateLayer(generatedRoot.transform, "BuildingRoofs", roofMesh.Build("BuildingRoofMesh"), CreateRoofMaterial(), true);
             GameObject tracks = CreateLayer(generatedRoot.transform, "TramTracks", tramMesh.Build("TramTrackMesh"), CreateMaterial("TramTracks", new Color(0.96f, 0.72f, 0.12f)));
             TramTrackNetwork network = tracks.AddComponent<TramTrackNetwork>();
             network.ReplacePaths(trackPaths);
             generatedRoot.AddComponent<SparvagnRushBootstrap>().SetNetwork(network);
             CreateLandmark(generatedRoot.transform);
-            int detailCount = CreateMapDetails(generatedRoot.transform);
+            int detailCount = CreateMapDetails(generatedRoot.transform, trackPaths);
 
             EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
             Selection.activeGameObject = generatedRoot;
@@ -428,12 +445,53 @@ namespace SparvagnRush.Editor
         {
             Material material = CreateMaterial("Ground", new Color(0.32f, 0.38f, 0.29f), true);
             Texture2D aerial = AssetDatabase.LoadAssetAtPath<Texture2D>(OptionalAerialSource);
-            if (aerial == null) return material;
-            material.mainTexture = aerial;
-            if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", aerial);
+            Texture2D texture = aerial != null ? aerial : CreateProceduralGroundTexture();
+            material.mainTexture = texture;
+            if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", texture);
             material.color = Color.white;
             if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", Color.white);
+            // Aerial imagery maps once over the exact geographic bounds. The generated
+            // fallback is small-scale surface detail, so repeat it instead of stretching it.
+            Vector2 scale = aerial != null ? Vector2.one : new Vector2(90f, 120f);
+            material.mainTextureScale = scale;
+            if (material.HasProperty("_BaseMap")) material.SetTextureScale("_BaseMap", scale);
             return material;
+        }
+
+        private static Texture2D CreateProceduralGroundTexture()
+        {
+            const int size = 192;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, true)
+            {
+                name = "ProceduralGround",
+                wrapMode = TextureWrapMode.Repeat,
+                filterMode = FilterMode.Trilinear,
+                anisoLevel = 4,
+            };
+            var pixels = new Color[size * size];
+            Color moss = new(0.24f, 0.31f, 0.19f);
+            Color dryGrass = new(0.39f, 0.40f, 0.23f);
+            Color soil = new(0.27f, 0.235f, 0.18f);
+            for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float u = x / (float)size * Mathf.PI * 2f;
+                float v = y / (float)size * Mathf.PI * 2f;
+                // Periodic waves make every edge meet its opposite edge without a seam.
+                float broad = Mathf.Sin(u * 2f + Mathf.Cos(v)) * 0.5f +
+                              Mathf.Cos(v * 3f - Mathf.Sin(u * 2f)) * 0.3f +
+                              Mathf.Sin((u + v) * 7f) * 0.2f;
+                float grain = (((x * 73856093) ^ (y * 19349663)) & 255) / 255f;
+                float blend = Mathf.InverseLerp(-0.75f, 0.75f, broad);
+                Color color = Color.Lerp(moss, dryGrass, blend);
+                if (broad < -0.48f) color = Color.Lerp(color, soil, (-0.48f - broad) * 1.2f);
+                color *= 0.91f + grain * 0.16f;
+                pixels[y * size + x] = color;
+            }
+            texture.SetPixels(pixels);
+            texture.Apply(true, false);
+            AssetDatabase.CreateAsset(texture, ProceduralGroundAsset);
+            return texture;
         }
 
         private static Material CreateFacadeMaterial()
@@ -469,6 +527,32 @@ namespace SparvagnRush.Editor
             if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", texture);
             if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", 0.18f);
             return material;
+        }
+
+        private static Material CreateRoofMaterial()
+        {
+            Texture2D aerial = AssetDatabase.LoadAssetAtPath<Texture2D>(OptionalAerialSource);
+            Color color = aerial != null ? Color.white : new Color(0.29f, 0.28f, 0.3f);
+            Material material = CreateMaterial("BuildingRoofs", color, true);
+            if (aerial == null) return material;
+            material.mainTexture = aerial;
+            material.mainTextureScale = Vector2.one;
+            if (material.HasProperty("_BaseMap"))
+            {
+                material.SetTexture("_BaseMap", aerial);
+                material.SetTextureScale("_BaseMap", Vector2.one);
+            }
+            if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", 0.08f);
+            return material;
+        }
+
+        private static Vector2 MapUV(Vector3 point)
+        {
+            Vector3 southWest = ProjectAtElevation(new GeoPoint(West, South), 0f);
+            Vector3 northEast = ProjectAtElevation(new GeoPoint(East, North), 0f);
+            return new Vector2(
+                Mathf.InverseLerp(southWest.x, northEast.x, point.x),
+                Mathf.InverseLerp(southWest.z, northEast.z, point.z));
         }
 
         private static void CreateLandmark(Transform parent)

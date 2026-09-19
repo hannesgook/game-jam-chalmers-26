@@ -121,12 +121,14 @@ namespace SparvagnRush.Editor
             return false;
         }
 
-        private static int CreateMapDetails(Transform parent)
+        private static int CreateMapDetails(Transform parent, IReadOnlyList<TramTrackNetwork.TrackPath> trackPaths)
         {
             var detailsRoot = new GameObject("MapDetails");
             detailsRoot.transform.SetParent(parent, false);
             Material stopMaterial = CreateMaterial("TramStops", new Color(0.08f, 0.35f, 0.72f), true);
+            List<List<Vector3>> buildingOutlines = ReadBuildingOutlines();
             int count = CreateBuildingLabels(detailsRoot.transform);
+            var stopOccurrences = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
             string projectRoot = Directory.GetParent(Application.dataPath)?.FullName ?? Application.dataPath;
             string path = Path.GetFullPath(Path.Combine(projectRoot, DefaultDetailsSource));
@@ -152,8 +154,20 @@ namespace SparvagnRush.Editor
                 if (point.Lon < West || point.Lon > East || point.Lat < South || point.Lat > North) continue;
                 bool stop = PropertyEquals(properties, "kind", "tram_stop");
                 Vector3 position = Project(point, stop ? 0.2f : 3.2f);
-                if (stop) CreateStop(detailsRoot.transform, position, name, stopMaterial);
-                else CreateWorldLabel(detailsRoot.transform, position, name, PropertyEquals(properties, "kind", "shop") ? new Color(1f, 0.78f, 0.2f) : Color.white, 145f);
+                if (stop)
+                {
+                    stopOccurrences.TryGetValue(name, out int occurrence);
+                    stopOccurrences[name] = occurrence + 1;
+                    position = PlaceStopBesideTrack(position, name, occurrence, trackPaths);
+                    CreateStop(detailsRoot.transform, position, name, stopMaterial);
+                }
+                else
+                {
+                    bool shop = PropertyEquals(properties, "kind", "shop");
+                    position = SnapToBuildingEdge(position, buildingOutlines, 32f);
+                    CreateWorldLabel(detailsRoot.transform, position, name, Color.white, 145f,
+                        shop ? MapLabel.LabelStyle.Shop : MapLabel.LabelStyle.Place);
+                }
                 count++;
             }
             return count;
@@ -178,14 +192,133 @@ namespace SparvagnRush.Editor
                     continue;
                 List<GeoPoint> outline = ReadLine(rings[0]);
                 if (outline.Count < 3) continue;
-                double lon = 0, lat = 0;
-                foreach (GeoPoint point in outline) { lon += point.Lon; lat += point.Lat; }
-                var centre = new GeoPoint(lon / outline.Count, lat / outline.Count);
+                List<Vector3> projected = ProjectRing(outline);
+                if (projected.Count < 3) continue;
                 float height = ResolveBuildingHeight(properties, 200f);
-                CreateWorldLabel(parent, Project(centre, height + 1.5f), name, new Color(0.92f, 0.95f, 1f), 240f);
+                Vector3 position = LongestFacadeMidpoint(projected, height);
+                CreateWorldLabel(parent, position, name, Color.white, 240f,
+                    MapLabel.LabelStyle.Building);
                 count++;
             }
             return count;
+        }
+
+        private static List<List<Vector3>> ReadBuildingOutlines()
+        {
+            var result = new List<List<Vector3>>();
+            string projectRoot = Directory.GetParent(Application.dataPath)?.FullName ?? Application.dataPath;
+            string path = Path.GetFullPath(Path.Combine(projectRoot, DefaultBuildingSource));
+            if (!File.Exists(path)) return result;
+            Dictionary<string, object> root = GeoJsonLite.ParseObject(File.ReadAllText(path));
+            if (!root.TryGetValue("features", out object raw) || raw is not List<object> features) return result;
+            foreach (object item in features)
+            {
+                if (item is not Dictionary<string, object> feature ||
+                    !TryObject(feature, "geometry", out Dictionary<string, object> geometry) ||
+                    !geometry.TryGetValue("coordinates", out object coordinates) ||
+                    coordinates is not List<object> rings || rings.Count == 0)
+                    continue;
+                List<Vector3> outline = ProjectRing(ReadLine(rings[0]));
+                if (outline.Count >= 3) result.Add(outline);
+            }
+            return result;
+        }
+
+        private static Vector3 LongestFacadeMidpoint(IReadOnlyList<Vector3> outline, float buildingHeight)
+        {
+            int best = 0;
+            float longest = 0f;
+            Vector3 centre = Vector3.zero;
+            foreach (Vector3 point in outline) centre += point;
+            centre /= outline.Count;
+            for (int i = 0; i < outline.Count; i++)
+            {
+                float length = (outline[(i + 1) % outline.Count] - outline[i]).sqrMagnitude;
+                if (length > longest) { longest = length; best = i; }
+            }
+            Vector3 a = outline[best];
+            Vector3 b = outline[(best + 1) % outline.Count];
+            Vector3 midpoint = (a + b) * 0.5f;
+            Vector3 edge = b - a;
+            Vector3 outward = new(-edge.z, 0f, edge.x);
+            if (Vector3.Dot(outward, midpoint - centre) < 0f) outward = -outward;
+            midpoint += outward.normalized * 0.35f;
+            midpoint.y = Mathf.Lerp(midpoint.y, midpoint.y + buildingHeight, 0.72f);
+            return midpoint;
+        }
+
+        private static Vector3 SnapToBuildingEdge(Vector3 source, IReadOnlyList<List<Vector3>> outlines, float maximumDistance)
+        {
+            float bestDistance = maximumDistance * maximumDistance;
+            Vector3 best = source;
+            foreach (List<Vector3> outline in outlines)
+            {
+                Vector3 centre = Vector3.zero;
+                foreach (Vector3 point in outline) centre += point;
+                centre /= outline.Count;
+                for (int i = 0; i < outline.Count; i++)
+                {
+                    Vector3 a = outline[i];
+                    Vector3 b = outline[(i + 1) % outline.Count];
+                    Vector3 flatSource = new(source.x, a.y, source.z);
+                    Vector3 candidate = ClosestPointOnSegment(flatSource, a, b);
+                    float distance = (new Vector2(candidate.x - source.x, candidate.z - source.z)).sqrMagnitude;
+                    if (distance >= bestDistance) continue;
+                    Vector3 edge = b - a;
+                    Vector3 outward = new(-edge.z, 0f, edge.x);
+                    if (Vector3.Dot(outward, candidate - centre) < 0f) outward = -outward;
+                    bestDistance = distance;
+                    best = candidate + outward.normalized * 0.35f + Vector3.up * 2.6f;
+                }
+            }
+            return best;
+        }
+
+        private static Vector3 PlaceStopBesideTrack(Vector3 source, string name, int occurrence,
+            IReadOnlyList<TramTrackNetwork.TrackPath> paths)
+        {
+            float bestDistance = float.MaxValue;
+            Vector3 railPoint = source;
+            Vector3 tangent = Vector3.forward;
+            foreach (TramTrackNetwork.TrackPath path in paths)
+            for (int i = 0; i + 1 < path.points.Length; i++)
+            {
+                Vector3 candidate = ClosestPointOnSegment(source, path.points[i], path.points[i + 1]);
+                float distance = (candidate - source).sqrMagnitude;
+                if (distance >= bestDistance) continue;
+                bestDistance = distance;
+                railPoint = candidate;
+                tangent = path.points[i + 1] - path.points[i];
+            }
+            tangent.y = 0f;
+            if (tangent.sqrMagnitude < 0.01f) tangent = Vector3.forward;
+            Vector3 side = new Vector3(-tangent.z, 0f, tangent.x).normalized;
+            Vector3 fromRail = source - railPoint;
+            fromRail.y = 0f;
+            float sign = Mathf.Abs(Vector3.Dot(fromRail, side)) > 0.6f
+                ? Mathf.Sign(Vector3.Dot(fromRail, side))
+                : ((StableNameHash(name) + occurrence) & 1) == 0 ? 1f : -1f;
+            Vector3 position = railPoint + side * (sign * 4.8f);
+            position.y = source.y;
+            return position;
+        }
+
+        private static int StableNameHash(string value)
+        {
+            unchecked
+            {
+                int hash = 17;
+                foreach (char character in value) hash = hash * 31 + character;
+                return hash;
+            }
+        }
+
+        private static Vector3 ClosestPointOnSegment(Vector3 point, Vector3 a, Vector3 b)
+        {
+            Vector3 segment = b - a;
+            float denominator = segment.sqrMagnitude;
+            if (denominator < 0.0001f) return a;
+            return a + segment * Mathf.Clamp01(Vector3.Dot(point - a, segment) / denominator);
         }
 
         private static void CreateStop(Transform parent, Vector3 position, string name, Material material)
@@ -205,10 +338,12 @@ namespace SparvagnRush.Editor
             sign.transform.localScale = new Vector3(0.9f, 0.75f, 0.12f);
             sign.GetComponent<Renderer>().sharedMaterial = material;
             UnityEngine.Object.DestroyImmediate(sign.GetComponent<Collider>());
-            CreateWorldLabel(root.transform, Vector3.up * 5.25f, name, new Color(0.4f, 0.85f, 1f), 280f, true);
+            CreateWorldLabel(root.transform, Vector3.up * 5.25f, name, Color.white, 280f,
+                MapLabel.LabelStyle.Stop, true);
         }
 
-        private static void CreateWorldLabel(Transform parent, Vector3 position, string text, Color color, float range, bool local = false)
+        private static void CreateWorldLabel(Transform parent, Vector3 position, string text, Color color, float range,
+            MapLabel.LabelStyle style, bool local = false)
         {
             var labelObject = new GameObject("Label — " + text);
             labelObject.transform.SetParent(parent, false);
@@ -221,6 +356,7 @@ namespace SparvagnRush.Editor
             label.characterSize = 0.085f;
             label.color = color;
             var billboard = labelObject.AddComponent<MapLabel>();
+            billboard.SetStyle(style);
             var serialized = new SerializedObject(billboard);
             serialized.FindProperty("maximumDistance").floatValue = range;
             serialized.ApplyModifiedPropertiesWithoutUndo();

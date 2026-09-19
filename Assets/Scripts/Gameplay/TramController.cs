@@ -26,6 +26,8 @@ namespace SparvagnRush.Gameplay
         [SerializeField] private float maximumYawRate = 180f;
         [Tooltip("How far ahead the nose aims, which sweeps the body through a corner instead of pivoting it on the node.")]
         [SerializeField] private float headingLookAhead = 6f;
+        [Tooltip("Lean this many degrees before a junction is committed left or right.")]
+        [SerializeField] private float junctionLeanThreshold = 2.5f;
 
         [Header("Balance")]
         [Tooltip("How hard the world fights to tip the tram over. Scales both the sideways throw of a curve and how fast a lean runs away. Lower is more forgiving; 1 is the physically honest value.")]
@@ -111,16 +113,22 @@ namespace SparvagnRush.Gameplay
             if (network == null || network.Graph.Count < 2) return;
             Keyboard keyboard = Keyboard.current;
             float throttle = 0f;
+            float leanInput = 0f;
             if (keyboard != null)
             {
                 if (keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed) throttle += 1f;
                 if (keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed) throttle -= 1f;
-                // Held, not tapped: lean on the key and every junction reached while it is
-                // down is taken that way, so the turn never has to be timed.
                 bool left = keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed;
                 bool right = keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed;
-                junctionChoice = left == right ? 0 : left ? -1 : 1;
+                leanInput = left == right ? 0f : left ? -1f : 1f;
             }
+
+            // Junctions follow the tram's physical pose, not the key currently held.
+            // This keeps a committed lean meaningful even if the player releases A/D
+            // just before the wheels reach the switch.
+            junctionChoice = leanAngle < -junctionLeanThreshold ? -1
+                : leanAngle > junctionLeanThreshold ? 1
+                : 0;
 
             speed = throttle == 0f
                 ? Mathf.MoveTowards(speed, 0f, coastingDrag * Time.deltaTime)
@@ -133,7 +141,7 @@ namespace SparvagnRush.Gameplay
 
             edgeProgress += speed * Time.deltaTime;
             AdvanceAcrossNodes();
-            smoothedLeanInput = Mathf.MoveTowards(smoothedLeanInput, junctionChoice, leanInputResponse * Time.deltaTime);
+            smoothedLeanInput = Mathf.MoveTowards(smoothedLeanInput, leanInput, leanInputResponse * Time.deltaTime);
             UpdateLean(smoothedLeanInput, Time.deltaTime);
             if (derailed) return;
             ApplyTransform();

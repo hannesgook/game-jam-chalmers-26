@@ -52,6 +52,7 @@ namespace SparvagnRush.Gameplay
             }
 
             EnsureMapColliders();
+            EnsureGroundTexture();
 
             Vector3 requestedStart = network.Graph[0].position;
             GameObject tram_obj = Resources.Load<GameObject>("Prefabs/tram");
@@ -119,6 +120,54 @@ namespace SparvagnRush.Gameplay
             sun.intensity = 1.15f;
             sun.shadows = LightShadows.Soft;
             sun.transform.rotation = Quaternion.Euler(42f, -28f, 0f);
+        }
+
+        // Older generated scenes have valid ground UVs but no image assigned. Give those
+        // scenes the same detailed fallback immediately, without requiring a map rebuild.
+        private void EnsureGroundTexture()
+        {
+            Transform ground = transform.Find("Ground");
+            Renderer renderer = ground != null ? ground.GetComponent<Renderer>() : null;
+            if (renderer == null || renderer.sharedMaterial == null || renderer.sharedMaterial.mainTexture != null) return;
+
+            const int size = 128;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, true)
+            {
+                name = "Runtime Ground Detail",
+                wrapMode = TextureWrapMode.Repeat,
+                filterMode = FilterMode.Trilinear,
+                anisoLevel = 4,
+            };
+            var pixels = new Color[size * size];
+            Color moss = new(0.24f, 0.31f, 0.19f);
+            Color grass = new(0.39f, 0.40f, 0.23f);
+            Color soil = new(0.27f, 0.235f, 0.18f);
+            for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float u = x / (float)size * Mathf.PI * 2f;
+                float v = y / (float)size * Mathf.PI * 2f;
+                float pattern = Mathf.Sin(u * 2f + Mathf.Cos(v)) * 0.5f +
+                                Mathf.Cos(v * 3f - Mathf.Sin(u * 2f)) * 0.3f +
+                                Mathf.Sin((u + v) * 7f) * 0.2f;
+                float grain = (((x * 73856093) ^ (y * 19349663)) & 255) / 255f;
+                Color color = Color.Lerp(moss, grass, Mathf.InverseLerp(-0.75f, 0.75f, pattern));
+                if (pattern < -0.48f) color = Color.Lerp(color, soil, (-0.48f - pattern) * 1.2f);
+                pixels[y * size + x] = color * (0.91f + grain * 0.16f);
+            }
+            texture.SetPixels(pixels);
+            texture.Apply(true, false);
+
+            Material material = renderer.material;
+            material.mainTexture = texture;
+            material.mainTextureScale = new Vector2(90f, 120f);
+            if (material.HasProperty("_BaseMap"))
+            {
+                material.SetTexture("_BaseMap", texture);
+                material.SetTextureScale("_BaseMap", new Vector2(90f, 120f));
+            }
+            material.color = Color.white;
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", Color.white);
         }
 
 #if DEVELOPMENT_BUILD || UNITY_EDITOR

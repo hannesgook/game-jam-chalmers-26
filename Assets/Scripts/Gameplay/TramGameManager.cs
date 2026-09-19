@@ -169,7 +169,7 @@ namespace SparvagnRush.Gameplay
             };
             string objective = carryingPassenger ? "DROP OFF — cyan beacon" : "PICK UP — yellow beacon";
             GUI.Box(new Rect(18, 18, 430, 126), $"SPÅRVAGN RUSH\nScore  {score:00000}    Combo  x{Mathf.Max(1, combo)}\nTime  {Mathf.CeilToInt(sessionTime):00}s    Job  {Mathf.CeilToInt(jobTime):00}s\n{objective}", hud);
-            GUI.Label(new Rect(20, Screen.height - 42, 850, 28), "W/S: drive   Hold A/D: lean + choose junction   RMB drag: orbit   MMB: reset camera", hud);
+            GUI.Label(new Rect(20, Screen.height - 42, 900, 28), "W/S: drive   A/D: lean — the way you are leaning chooses the junction   RMB drag: orbit", hud);
 
             if (!sessionEnded)
             {
@@ -190,8 +190,8 @@ namespace SparvagnRush.Gameplay
                     alignment = TextAnchor.MiddleCenter,
                     normal = { textColor = Color.white }
                 };
-                GUI.Box(new Rect(Screen.width * 0.27f, 24f, Screen.width * 0.46f, 132f),
-                    "SPÅRVAGN RUSH\nMap data © OpenStreetMap contributors\nElevation: Göteborgs Stad, 2022 (CC0)", title);
+                GUI.Box(new Rect(Screen.width * 0.25f, 24f, Screen.width * 0.5f, 164f),
+                    "SPÅRVAGN RUSH\nMap data © OpenStreetMap contributors\nAerial imagery: Göteborgs Stad, 2025 (CC0)\nElevation: Göteborgs Stad, 2022 (CC0)", title);
             }
 
             if (!sessionEnded) return;

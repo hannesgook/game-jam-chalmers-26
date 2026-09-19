@@ -73,6 +73,9 @@ crashlytics-build.properties
 # Assets/Map_data/gothenburg_height_513.bytes remains tracked.
 /Assets/Map_data/639_14/
 /Assets/Map_data/639_14.meta
+# Downloadable Göteborg CC0 orthophoto. Recreate with Tools/FetchAerial.py.
+/Assets/Map_data/aerial.jpg
+/Assets/Map_data/aerial.jpg.meta
 *.apk
 *.aab
 *.unitypackage

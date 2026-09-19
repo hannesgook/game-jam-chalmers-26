@@ -23,12 +23,15 @@ to be duplicated in the detail file.
 
 ## Optional aerial ground image
 
-Put a legally licensed, north-up image covering exactly the map bounds
-`57.695, 11.965` to `57.710, 11.985` at `Assets/Map_data/aerial.png`, then run
-**Tools > Göteborg > Generate Map**. The terrain UVs are georeferenced to those
-bounds and the generator will use the image automatically. Keep the provider's
-required attribution in the game. Do not copy tiles from consumer map websites:
-their terms commonly prohibit repackaging them in a game.
+`aerial.jpg` is the official Göteborg 2025 orthophoto for exactly the map bounds
+`57.695, 11.965` to `57.710, 11.985`. It comes from Göteborgs Stad's open WMS
+and is CC0. Refresh it with `python Tools/FetchAerial.py`, then regenerate the
+map. The terrain UVs are georeferenced to those bounds. Do not replace it with
+tiles copied from consumer map websites; their terms commonly prohibit
+repackaging them in a game.
+
+The generator applies the same geographic projection to building roofs, so
+roof details in the orthophoto align with the extruded 3D footprints.
 
 ## Buildings
 
