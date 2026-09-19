@@ -10,6 +10,15 @@ namespace SparvagnRush.Gameplay
         [Range(0f, 1f)] public float engineMaxVolume = 0.4f;
         [Range(0f, 1f)] public float ambienceVolume = 0.25f;
         [Range(0f, 1f)] public float successVolume = 0.6f;
+        [Range(0f, 1f)] public float explosionVolume = 0.85f;
+        [Range(0f, 1f)] public float npcHitVolume = 0.7f;
+
+        [Header("Optional recorded impact sounds (generated sounds used when empty)")]
+        [SerializeField] private AudioClip explosionSound;
+        [SerializeField] private AudioClip[] npcHitSounds;
+        private readonly System.Collections.Generic.List<AudioClip> generatedImpactClips = new();
+        private AudioSource[] impactVoices;
+        private int nextImpactVoice;
 
         private TramController tram;
         private AudioSource engine;
@@ -28,6 +37,7 @@ namespace SparvagnRush.Gameplay
             ambience = CreateSource(MakeAmbientLoop(), true);
             sfx = CreateSource(null, false);
             successClip = MakeSuccessChime();
+            InitializeImpactSounds();
 
             ApplyMix(); // set volumes before playing so there's no burst at full volume
             engine.Play();
@@ -38,6 +48,113 @@ namespace SparvagnRush.Gameplay
         {
             if (sfx == null || successClip == null) return;
             sfx.PlayOneShot(successClip, successVolume * masterVolume);
+        }
+
+        private void InitializeImpactSounds()
+        {
+            impactVoices = new AudioSource[8];
+            for (int i = 0; i < impactVoices.Length; i++) impactVoices[i] = CreateSource(null, false);
+            if (explosionSound == null)
+            {
+                explosionSound = MakeExplosion();
+                generatedImpactClips.Add(explosionSound);
+            }
+            if (npcHitSounds == null || npcHitSounds.Length == 0)
+            {
+                npcHitSounds = new AudioClip[4];
+                for (int i = 0; i < npcHitSounds.Length; i++)
+                {
+                    npcHitSounds[i] = MakeNpcCry(i);
+                    generatedImpactClips.Add(npcHitSounds[i]);
+                }
+            }
+        }
+
+        public void PlayExplosion() => PlayImpact(explosionSound, explosionVolume, 1f);
+
+        public void PlayNpcHit()
+        {
+            if (npcHitSounds == null || npcHitSounds.Length == 0) return;
+            PlayImpact(npcHitSounds[Random.Range(0, npcHitSounds.Length)], npcHitVolume, Random.Range(0.92f, 1.08f));
+        }
+
+        private void PlayImpact(AudioClip clip, float volume, float pitch)
+        {
+            if (clip == null || impactVoices == null) return;
+            // Bound simultaneous cries during crowd hits instead of stacking
+            // unlimited one-shots. Prefer an idle voice before replacing one.
+            AudioSource voice = impactVoices[nextImpactVoice];
+            for (int i = 0; i < impactVoices.Length; i++)
+                if (!impactVoices[i].isPlaying) { voice = impactVoices[i]; break; }
+            nextImpactVoice = (nextImpactVoice + 1) % impactVoices.Length;
+            voice.Stop();
+            voice.clip = clip;
+            voice.pitch = pitch;
+            voice.volume = volume * masterVolume;
+            voice.Play();
+        }
+
+        private static AudioClip MakeExplosion()
+        {
+            const int rate = 22050;
+            var samples = new float[(int)(rate * 1.4f)];
+            var noise = new System.Random(718);
+            float rumble = 0f, phase = 0f;
+            for (int i = 0; i < samples.Length; i++)
+            {
+                float t = i / (float)rate;
+                float white = (float)noise.NextDouble() * 2f - 1f;
+                rumble += 0.055f * (white - rumble);
+                phase += 2f * Mathf.PI * (42f + 95f * Mathf.Exp(-14f * t)) / rate;
+                float attack = Mathf.Clamp01(t / 0.003f);
+                float tail = Mathf.Clamp01((1.4f - t) / 0.15f);
+                samples[i] = Mathf.Clamp(attack * tail * (
+                    white * 0.55f * Mathf.Exp(-15f * t) +
+                    rumble * 2.2f * Mathf.Exp(-3.5f * t) +
+                    Mathf.Sin(phase) * 0.5f * Mathf.Exp(-5f * t)), -0.95f, 0.95f);
+            }
+            return CreateClip("BuildingExplosion", samples, rate);
+        }
+
+        private static AudioClip MakeNpcCry(int variant)
+        {
+            const int rate = 22050;
+            float duration = 0.7f + variant * 0.09f;
+            var samples = new float[(int)(rate * duration)];
+            var noise = new System.Random(913 + variant);
+            float phase = 0f;
+            for (int i = 0; i < samples.Length; i++)
+            {
+                float t = i / (float)rate;
+                float progress = t / duration;
+                // A short low "ugh" opens into a wavering, falling "aah".
+                float opening = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((t - 0.07f) / 0.12f));
+                float pitch = Mathf.Lerp(125f + variant * 18f,
+                    (340f + variant * 55f) * (1f - 0.35f * progress), opening);
+                pitch *= 1f + 0.025f * Mathf.Sin(t * 2f * Mathf.PI * 13f);
+                phase += 2f * Mathf.PI * pitch / rate;
+                float vowel = 0f;
+                for (int harmonic = 1; harmonic <= 16; harmonic++)
+                {
+                    float hz = harmonic * pitch;
+                    float f1 = (hz - Mathf.Lerp(450f, 850f, opening)) / 220f;
+                    float f2 = (hz - 1250f) / 320f;
+                    float f3 = (hz - 2600f) / 500f;
+                    float weight = (0.15f + Mathf.Exp(-f1 * f1) + 0.7f * Mathf.Exp(-f2 * f2)
+                        + 0.25f * Mathf.Exp(-f3 * f3)) / harmonic;
+                    vowel += Mathf.Sin(phase * harmonic) * weight;
+                }
+                float envelope = Mathf.Clamp01(t / 0.015f) * Mathf.Pow(1f - progress, 0.65f);
+                float breath = ((float)noise.NextDouble() * 2f - 1f) * 0.055f;
+                float thud = Mathf.Sin(2f * Mathf.PI * 90f * t) * Mathf.Exp(-35f * t) * 0.25f;
+                samples[i] = Mathf.Clamp((vowel * 0.8f + breath) * envelope + thud, -0.9f, 0.9f);
+            }
+            return CreateClip($"NpcHurtScream{variant + 1}", samples, rate);
+        }
+
+        private void OnDestroy()
+        {
+            foreach (AudioClip clip in generatedImpactClips) if (clip != null) Destroy(clip);
         }
 
         private void Start()

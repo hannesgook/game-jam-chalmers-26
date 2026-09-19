@@ -442,6 +442,7 @@ namespace SparvagnRush.Gameplay
             headingInitialised = false;
             enabled = true;
             Initialize(network, startRequest);
+            GetComponent<TramImpactEffects>()?.ResetSweep();
         }
 
 

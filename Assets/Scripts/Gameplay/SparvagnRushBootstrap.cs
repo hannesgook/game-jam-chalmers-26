@@ -65,6 +65,7 @@ namespace SparvagnRush.Gameplay
             TramController tram = tramObject.AddComponent<TramController>();
             tram.Initialize(network, requestedStart);
             tramObject.AddComponent<TramAudio>().Initialize(tram);
+            tramObject.AddComponent<TramImpactEffects>();
 
             Camera camera = Camera.main;
             if (camera == null)
@@ -85,6 +86,9 @@ namespace SparvagnRush.Gameplay
 
             TramGameManager manager = gameObject.AddComponent<TramGameManager>();
             manager.Initialize(network, tram);
+
+            AmbientNpcManager pedestrians = gameObject.AddComponent<AmbientNpcManager>();
+            pedestrians.Initialize(network, tram.transform);
 
 #if DEVELOPMENT_BUILD || UNITY_EDITOR
             if (Array.Exists(Environment.GetCommandLineArgs(), argument => argument == "-captureSmoke"))
