@@ -54,7 +54,12 @@ namespace SparvagnRush.Gameplay
 
         // Terrain tops out around 45 m, but a wreck can be thrown well above that.
         private const float GroundProbeHeight = 300f;
-        private static readonly RaycastHit[] GroundHits = new RaycastHit[8];
+        // The generator's name for the ground layer, and the only surface the wreck
+        // rescue below accepts as a floor.
+        private const string GroundLayerName = "Ground";
+        // A ray dropped through a city block crosses the roofs and walls as well as the
+        // ground, and a saturated buffer is a buffer that can miss the floor.
+        private static readonly RaycastHit[] GroundHits = new RaycastHit[16];
 
         // 45 m of look-ahead is ~18 nodes on densified track, ~4 at raw OSM node spacing.
         private const int LookAheadNodeLimit = 48;
@@ -70,6 +75,8 @@ namespace SparvagnRush.Gameplay
         private float leanAngle;
         private float leanVelocity;
         private bool derailed;
+        // The prefab's own collider, resolved on derail and used to measure the wreck.
+        private Collider hull;
         private float derailFloor;
         private Vector3 startRequest;
 
@@ -333,10 +340,11 @@ namespace SparvagnRush.Gameplay
             float side = Mathf.Sign(leanAngle);
             ApplyTransform();
 
-            Bounds local = LocalBounds();
-            BoxCollider box = gameObject.AddComponent<BoxCollider>();
-            box.center = local.center;
-            box.size = local.size;
+            // The prefab brings its own collider on a child object. A rigidbody composes
+            // every collider under it that has no rigidbody of its own, so the wreck is
+            // already shaped correctly and fitting a second box here would only wrap the
+            // model in a hull that does not match it.
+            hull = GetComponentInChildren<Collider>();
 
             Rigidbody body = gameObject.AddComponent<Rigidbody>();
             body.mass = derailMass;
@@ -356,7 +364,7 @@ namespace SparvagnRush.Gameplay
         private void FixedUpdate()
         {
             if (!derailed || !TryGetComponent(out Rigidbody body)) return;
-            if (!TryGetComponent(out Collider hull)) return;
+            if (hull == null) return;
 
             // Measured off the hull rather than the pivot, so it works wherever the
             // model's origin sits, and it lifts by exactly how far the underside has
@@ -383,6 +391,10 @@ namespace SparvagnRush.Gameplay
             for (int i = 0; i < count; i++)
             {
                 if (GroundHits[i].collider.transform.IsChildOf(transform)) continue;
+                // Only the ground counts. This is a rescue for a wreck that tunnelled
+                // through a thin mesh, and the buildings now under the ray would lift
+                // one that merely came to rest beside a wall up onto its roof.
+                if (GroundHits[i].collider.gameObject.name != GroundLayerName) continue;
                 if (GroundHits[i].point.y > highest) highest = GroundHits[i].point.y;
             }
             return float.IsNegativeInfinity(highest) ? derailFloor : highest;
@@ -396,7 +408,8 @@ namespace SparvagnRush.Gameplay
                 body.isKinematic = true;
                 Destroy(body);
             }
-            if (TryGetComponent(out BoxCollider box)) Destroy(box);
+            // The collider belongs to the prefab, so it is released rather than destroyed.
+            hull = null;
 
             derailed = false;
             leanAngle = 0f;
@@ -408,26 +421,6 @@ namespace SparvagnRush.Gameplay
             Initialize(network, startRequest);
         }
 
-        private Bounds LocalBounds()
-        {
-            Renderer[] renderers = GetComponentsInChildren<Renderer>();
-            if (renderers.Length == 0) return new Bounds(Vector3.zero, new Vector3(3f, 3f, 9f));
-
-            var bounds = new Bounds(transform.InverseTransformPoint(renderers[0].bounds.center), Vector3.zero);
-            foreach (Renderer renderer in renderers)
-            {
-                Bounds world = renderer.bounds;
-                for (int corner = 0; corner < 8; corner++)
-                {
-                    var point = new Vector3(
-                        (corner & 1) == 0 ? world.min.x : world.max.x,
-                        (corner & 2) == 0 ? world.min.y : world.max.y,
-                        (corner & 4) == 0 ? world.min.z : world.max.z);
-                    bounds.Encapsulate(transform.InverseTransformPoint(point));
-                }
-            }
-            return bounds;
-        }
 
         private float CurrentEdgeLength() => Vector3.Distance(network.Graph[currentNode].position, network.Graph[targetNode].position);
 

@@ -13,23 +13,32 @@ namespace SparvagnRush.Gameplay
 
         public void SetNetwork(TramTrackNetwork trackNetwork) => network = trackNetwork;
 
-        // A map generated before the ground carried a collider leaves a derailed tram
-        // with nothing to land on, so fit one at play time rather than making the map
-        // have to be rebuilt first. Regenerating bakes it in and skips the cook cost.
-        private void EnsureGroundCollider()
-        {
-            Transform ground = transform.Find("Ground");
-            if (ground == null || ground.GetComponent<MeshCollider>() != null) return;
+        // The layers a derailed tram has to collide with: the ground to land on, the
+        // walls and roofs to hit on the way down.
+        private static readonly string[] CollidableLayers = { "Ground", "Buildings", "BuildingRoofs" };
 
-            MeshFilter filter = ground.GetComponent<MeshFilter>();
+        // A map generated before these layers carried colliders leaves a derailed tram
+        // falling through the city, so fit them at play time rather than making the map
+        // have to be rebuilt first. Regenerating bakes them in and skips the cook cost.
+        private void EnsureMapColliders()
+        {
+            foreach (string name in CollidableLayers) EnsureCollider(name);
+        }
+
+        private void EnsureCollider(string layerName)
+        {
+            Transform layer = transform.Find(layerName);
+            if (layer == null || layer.GetComponent<MeshCollider>() != null) return;
+
+            MeshFilter filter = layer.GetComponent<MeshFilter>();
             if (filter == null || filter.sharedMesh == null) return;
             if (!filter.sharedMesh.isReadable)
             {
-                Debug.LogWarning("Ground mesh is not readable, so no collider could be fitted. Run Tools > Göteborg > Generate Map.");
+                Debug.LogWarning($"{layerName} mesh is not readable, so no collider could be fitted. Run Tools > Göteborg > Generate Map.");
                 return;
             }
 
-            ground.gameObject.AddComponent<MeshCollider>().sharedMesh = filter.sharedMesh;
+            layer.gameObject.AddComponent<MeshCollider>().sharedMesh = filter.sharedMesh;
         }
 
         private void Start()
@@ -42,14 +51,15 @@ namespace SparvagnRush.Gameplay
                 return;
             }
 
-            EnsureGroundCollider();
+            EnsureMapColliders();
 
             Vector3 requestedStart = network.Graph[0].position;
             GameObject tram_obj = Resources.Load<GameObject>("Prefabs/tram");
             GameObject tramObject = GameObject.Instantiate(tram_obj);
             tramObject.name = "PlayerTram";
            // tramObject.transform.localScale = new Vector3(3.2f, 2.4f, 9f);
-            Destroy(tramObject.GetComponent<Collider>());
+            // The prefab's collider is left alone: it sits on a child object, and the
+            // wreck rigidbody added on derail composes it.
 //          tramObject.GetComponent<Renderer>().sharedMaterial = CreateRuntimeMaterial(new Color(0.1f, 0.55f, 0.95f));
             TramController tram = tramObject.AddComponent<TramController>();
             tram.Initialize(network, requestedStart);

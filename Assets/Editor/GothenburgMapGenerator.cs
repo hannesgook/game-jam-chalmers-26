@@ -356,8 +356,8 @@ namespace SparvagnRush.Editor
             CreateLayer(generatedRoot.transform, "Roads", roadMesh.Build("RoadMesh"), CreateMaterial("Roads", new Color(0.25f, 0.27f, 0.28f)));
             // Walls and roofs are split so the city reads as blocks from the tram window;
             // both are lit, because an unlit extrusion is a silhouette with no corners.
-            CreateLayer(generatedRoot.transform, "Buildings", buildingMesh.Build("BuildingMesh"), CreateMaterial("Buildings", new Color(0.62f, 0.58f, 0.53f), true));
-            CreateLayer(generatedRoot.transform, "BuildingRoofs", roofMesh.Build("BuildingRoofMesh"), CreateMaterial("BuildingRoofs", new Color(0.29f, 0.28f, 0.3f), true));
+            CreateLayer(generatedRoot.transform, "Buildings", buildingMesh.Build("BuildingMesh"), CreateMaterial("Buildings", new Color(0.62f, 0.58f, 0.53f), true), true);
+            CreateLayer(generatedRoot.transform, "BuildingRoofs", roofMesh.Build("BuildingRoofMesh"), CreateMaterial("BuildingRoofs", new Color(0.29f, 0.28f, 0.3f), true), true);
             GameObject tracks = CreateLayer(generatedRoot.transform, "TramTracks", tramMesh.Build("TramTrackMesh"), CreateMaterial("TramTracks", new Color(0.96f, 0.72f, 0.12f)));
             TramTrackNetwork network = tracks.AddComponent<TramTrackNetwork>();
             network.ReplacePaths(trackPaths);
@@ -380,7 +380,9 @@ namespace SparvagnRush.Editor
             layer.transform.SetParent(parent, false);
             layer.AddComponent<MeshFilter>().sharedMesh = mesh;
             layer.AddComponent<MeshRenderer>().sharedMaterial = material;
-            // Only the ground is collidable, so a derailed tram has somewhere to land.
+            // The ground gives a derailed tram somewhere to land; the walls and roofs
+            // give it something to hit on the way. Roads and water stay collider-free:
+            // they sit on the ground surface and would only add cook time.
             if (collidable) layer.AddComponent<MeshCollider>().sharedMesh = mesh;
             return layer;
         }
