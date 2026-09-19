@@ -11,7 +11,7 @@ using UnityEngine.Rendering;
 
 namespace SparvagnRush.Editor
 {
-    public static class GothenburgMapGenerator
+    public static partial class GothenburgMapGenerator
     {
         private const string RootName = "GeneratedCity";
         private const string GeneratedAssetFolder = "Assets/GeneratedCity";
@@ -472,7 +472,7 @@ namespace SparvagnRush.Editor
             string path = Path.GetFullPath(Path.Combine(projectRoot, DefaultBuildingSource));
             if (!File.Exists(path))
             {
-                Debug.LogWarning($"Building data not found at {DefaultBuildingSource}; generating the map without buildings. Run Tools/FetchBuildings.py to create it.");
+                Debug.LogWarning($"Building data not found at {DefaultBuildingSource}; generating the map without buildings. Run Tools/Göteborg/Download Building Data to fetch it.");
                 return 0;
             }
 

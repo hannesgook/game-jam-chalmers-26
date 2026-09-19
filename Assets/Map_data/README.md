@@ -14,9 +14,17 @@ The game must display: **Map data © OpenStreetMap contributors**.
 
 `buildings.geojson` holds the 924 building footprints inside the same window,
 fetched from Overpass and reassembled into closed rings (courtyards included) by
-`Tools/FetchBuildings.py`. Refetch with:
+`Tools/FetchBuildings.py`. The file is committed, so a fresh clone needs no
+refetch. To pull it again, either use the menu item
+
+    Tools > Göteborg > Download Building Data
+
+or, if you would rather not open the editor, run
 
     python Tools/FetchBuildings.py
+
+Both query the same bounds and write the same footprints; the menu item exists
+so the project does not need Python on the machine.
 
 The generator extrudes each footprint to the height OSM gives it: the `height`
 tag where it exists (46 footprints), otherwise `building:levels` (296), and
