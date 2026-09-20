@@ -1,9 +1,9 @@
 using System.Collections.Generic;
-using SparvagnRush.Map;
+using TramRush.Map;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-namespace SparvagnRush.Gameplay
+namespace TramRush.Gameplay
 {
     /// <summary>Pre-session city navigation. Uses actual generated stops, including older scenes.</summary>
     public sealed class CityOverview : MonoBehaviour

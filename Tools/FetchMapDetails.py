@@ -25,7 +25,7 @@ def main():
     request = urllib.request.Request(
         "https://overpass-api.de/api/interpreter",
         data=urllib.parse.urlencode({"data": QUERY}).encode(),
-        headers={"User-Agent": "SparvagnRush-gamejam/1.0 (OSM map detail import)"},
+        headers={"User-Agent": "TramRush-gamejam/1.0 (OSM map detail import)"},
     )
     with urllib.request.urlopen(request, timeout=240) as response:
         payload = json.load(response)

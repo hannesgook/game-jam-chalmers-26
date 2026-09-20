@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace SparvagnRush.Gameplay
+namespace TramRush.Gameplay
 {
     public sealed class TramAudio : MonoBehaviour
     {

@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Networking;
 
-namespace SparvagnRush.Editor
+namespace TramRush.Editor
 {
     /// <summary>
     /// Editor-side twin of Tools/FetchAerial.py, so a fresh clone can pull the
@@ -88,7 +88,7 @@ namespace SparvagnRush.Editor
         {
             using var request = UnityWebRequest.Get(AerialUrl);
             request.downloadHandler = new DownloadHandlerBuffer();
-            request.SetRequestHeader("User-Agent", "SparvagnRush-gamejam/1.0 (CC0 orthophoto import)");
+            request.SetRequestHeader("User-Agent", "TramRush-gamejam/1.0 (CC0 orthophoto import)");
             request.timeout = 300;
 
             UnityWebRequestAsyncOperation operation = request.SendWebRequest();

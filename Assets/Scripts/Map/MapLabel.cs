@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace SparvagnRush.Map
+namespace TramRush.Map
 {
     /// <summary>Keeps generated world labels readable without turning the city into HUD clutter.</summary>
     public sealed class MapLabel : MonoBehaviour

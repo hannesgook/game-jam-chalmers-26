@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
-using SparvagnRush.Map;
+using TramRush.Map;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-namespace SparvagnRush.Gameplay
+namespace TramRush.Gameplay
 {
     public sealed class CityIntro : MonoBehaviour
     {
@@ -17,7 +17,7 @@ namespace SparvagnRush.Gameplay
         private float warmup, stableTime, averageFrame = 1f / 60f;
         private Vector3 transitionFrom;
         private Vector3 flightVelocity;
-        private SparvagnRushBootstrap bootstrap;
+        private TramRushBootstrap bootstrap;
         public bool Playing { get; private set; }
         public bool Loading { get; private set; }
         public string LoadingMessage => bootstrap != null && !bootstrap.StartupReady ? "Preparing the city and pedestrians…" : "Settling frame timing…";
@@ -26,7 +26,7 @@ namespace SparvagnRush.Gameplay
         {
             view = camera;
             complete = onComplete;
-            bootstrap = city.GetComponent<SparvagnRushBootstrap>();
+            bootstrap = city.GetComponent<TramRushBootstrap>();
             // Road overlays stay hidden; their centre lines remain useful flight paths.
             Transform roads = city.Find("Roads");
             Mesh mesh = roads != null ? roads.GetComponent<MeshFilter>()?.sharedMesh : null;

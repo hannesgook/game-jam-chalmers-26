@@ -6,11 +6,11 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-namespace SparvagnRush.Editor
+namespace TramRush.Editor
 {
-    public static class SparvagnRushBuildTools
+    public static class TramRushBuildTools
     {
-        private const string OutputPath = "Builds/Windows/SparvagnRush.exe";
+        private const string OutputPath = "Builds/Windows/TramRush.exe";
 
         [MenuItem("Tools/Göteborg/Build Windows")]
         public static void BuildWindows()

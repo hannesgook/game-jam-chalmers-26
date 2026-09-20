@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace SparvagnRush.Gameplay
+namespace TramRush.Gameplay
 {
     // The tram follows transforms while on rails and becomes a rigidbody when
     // derailed. Sweeps handle the former; physics contacts handle the wreck.
@@ -28,8 +28,8 @@ namespace SparvagnRush.Gameplay
             impactAudio = GetComponent<TramAudio>();
             tram = GetComponent<TramController>();
             ResetSweep();
-            blastMaterial = SparvagnRushBootstrap.CreateRuntimeMaterial(new Color(1f, 0.45f, 0.08f));
-            markMaterial = SparvagnRushBootstrap.CreateRuntimeMaterial(new Color(0.12f, 0.10f, 0.09f));
+            blastMaterial = TramRushBootstrap.CreateRuntimeMaterial(new Color(1f, 0.45f, 0.08f));
+            markMaterial = TramRushBootstrap.CreateRuntimeMaterial(new Color(0.12f, 0.10f, 0.09f));
         }
 
         // Respawning teleports the tram and must not sweep through the entire city.

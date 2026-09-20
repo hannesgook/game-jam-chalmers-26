@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch OSM building footprints for the Spårvagn Rush map window and write
+"""Fetch OSM building footprints for the TramRush map window and write
 Assets/Map_data/buildings.geojson.
 
 Overpass returns each multipolygon as loose member ways, so the ring assembly
@@ -45,7 +45,7 @@ def fetch():
     request = urllib.request.Request(
         "https://overpass-api.de/api/interpreter",
         data=urllib.parse.urlencode({"data": QUERY}).encode(),
-        headers={"User-Agent": "SparvagnRush-gamejam/1.0 (OSM building import)"},
+        headers={"User-Agent": "TramRush-gamejam/1.0 (OSM building import)"},
     )
     with urllib.request.urlopen(request, timeout=300) as response:
         return json.load(response)

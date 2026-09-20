@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace SparvagnRush.Gameplay
+namespace TramRush.Gameplay
 {
     /// <summary>
     /// Freezes the game the instant the tram touches somebody and orbits the wreck.

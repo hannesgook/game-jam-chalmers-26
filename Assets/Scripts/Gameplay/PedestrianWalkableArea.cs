@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace SparvagnRush.Gameplay
+namespace TramRush.Gameplay
 {
     // Test the rendered map footprint in XZ: ground also exists under the water,
     // so a ground raycast alone cannot tell whether a pedestrian is on dry land.

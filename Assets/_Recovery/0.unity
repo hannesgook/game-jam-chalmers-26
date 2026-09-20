@@ -262,7 +262,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 0041bbb453b86c142a2173ebbeaa8938, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::SparvagnRush.Map.TramTrackNetwork
+  m_EditorClassIdentifier: Assembly-CSharp::TramRush.Map.TramTrackNetwork
   paths:
   - osmId: way/8043849
     points:
@@ -7856,7 +7856,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 71bf47fd1fcde5f44be65196b7483d94, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::SparvagnRush.Gameplay.SparvagnRushBootstrap
+  m_EditorClassIdentifier: Assembly-CSharp::TramRush.Gameplay.TramRushBootstrap
   network: {fileID: 837614853}
 --- !u!4 &1640566685
 Transform:

@@ -5,7 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 
-namespace SparvagnRush.Map
+namespace TramRush.Map
 {
     /// <summary>
     /// Tiny JSON reader used only for the exported Overpass GeoJSON. Keeping it

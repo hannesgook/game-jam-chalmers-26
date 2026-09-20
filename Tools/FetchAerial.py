@@ -27,7 +27,7 @@ def main():
     }
     request = urllib.request.Request(
         ENDPOINT + "?" + urllib.parse.urlencode(parameters),
-        headers={"User-Agent": "SparvagnRush-gamejam/1.0 (CC0 orthophoto import)"},
+        headers={"User-Agent": "TramRush-gamejam/1.0 (CC0 orthophoto import)"},
     )
     with urllib.request.urlopen(request, timeout=300) as response:
         content_type = response.headers.get_content_type()

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace SparvagnRush.Map
+namespace TramRush.Map
 {
     public sealed class TramStation
     {

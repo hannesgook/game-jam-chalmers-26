@@ -3,12 +3,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading;
-using SparvagnRush.Map;
+using TramRush.Map;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Networking;
 
-namespace SparvagnRush.Editor
+namespace TramRush.Editor
 {
     public static partial class GothenburgMapGenerator
     {
@@ -68,7 +68,7 @@ namespace SparvagnRush.Editor
             request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes("data=" + UnityWebRequest.EscapeURL(DetailsQuery)));
             request.downloadHandler = new DownloadHandlerBuffer();
             request.SetRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-            request.SetRequestHeader("User-Agent", "SparvagnRush-gamejam/1.0 (OSM map detail import)");
+            request.SetRequestHeader("User-Agent", "TramRush-gamejam/1.0 (OSM map detail import)");
             request.timeout = 240;
             UnityWebRequestAsyncOperation operation = request.SendWebRequest();
             while (!operation.isDone)

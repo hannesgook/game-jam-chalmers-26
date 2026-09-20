@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace SparvagnRush.Map
+namespace TramRush.Map
 {
     [DisallowMultipleComponent]
     public sealed class TramTrackNetwork : MonoBehaviour

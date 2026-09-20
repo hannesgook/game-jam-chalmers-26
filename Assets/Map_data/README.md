@@ -1,7 +1,7 @@
 # Göteborg map data
 
 `export.geojson` was exported from OpenStreetMap through Overpass Turbo for the
-Spårvagn Rush game-jam project.
+TramRush game-jam project.
 
 - Source: https://www.openstreetmap.org/
 - Copyright: OpenStreetMap contributors

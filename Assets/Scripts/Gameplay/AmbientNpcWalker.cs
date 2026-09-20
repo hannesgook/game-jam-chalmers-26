@@ -1,8 +1,8 @@
 using System.Collections.Generic;
-using SparvagnRush.Map;
+using TramRush.Map;
 using UnityEngine;
 
-namespace SparvagnRush.Gameplay
+namespace TramRush.Gameplay
 {
     /// <summary>
     /// A small, procedural pedestrian which follows the tram graph at a safe
@@ -20,7 +20,7 @@ namespace SparvagnRush.Gameplay
         private const float MinimumKerbOffset = 2.6f;
         // How near the tram has to come before somebody turns and walks it down.
         private const float ChaseRadius = 90f;
-        private const float ChaseSpeedFactor = 1.7f;
+        private const float ChaseSpeedFactor = 1.6f;
         private static readonly RaycastHit[] GroundHits = new RaycastHit[12];
         // Outfits are shared rather than made per person. With a crowd this size a
         // material each would mean a draw call each, and none of them could batch.
@@ -120,7 +120,7 @@ namespace SparvagnRush.Gameplay
 
             float length = CurrentEdgeLength();
             edgeProgress = length * (reverse ? 1f - edge.T : edge.T);
-            walkingSpeed = Mathf.Lerp(2.4f, 3.8f, (float)random.NextDouble());
+            walkingSpeed = Mathf.Lerp(1.9f, 3.0f, (float)random.NextDouble());
             stride = (float)random.NextDouble() * Mathf.PI * 2f;
             groundProbeTimer = 0f;
 
@@ -509,13 +509,13 @@ namespace SparvagnRush.Gameplay
             for (int i = 0; i < OutfitCount; i++)
             {
                 Color clothing = Color.HSVToRGB(i / (float)OutfitCount, 0.48f, 0.82f);
-                shirtPalette[i] = SparvagnRushBootstrap.CreateRuntimeMaterial(clothing);
-                trouserPalette[i] = SparvagnRushBootstrap.CreateRuntimeMaterial(
+                shirtPalette[i] = TramRushBootstrap.CreateRuntimeMaterial(clothing);
+                trouserPalette[i] = TramRushBootstrap.CreateRuntimeMaterial(
                     Color.Lerp(clothing, new Color(0.08f, 0.1f, 0.14f), 0.68f));
             }
             skinPalette = new Material[SkinCount];
             for (int i = 0; i < SkinCount; i++)
-                skinPalette[i] = SparvagnRushBootstrap.CreateRuntimeMaterial(Color.Lerp(
+                skinPalette[i] = TramRushBootstrap.CreateRuntimeMaterial(Color.Lerp(
                     new Color(0.36f, 0.18f, 0.10f), new Color(1f, 0.75f, 0.57f), i / (SkinCount - 1f)));
         }
 

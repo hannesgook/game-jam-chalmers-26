@@ -1,13 +1,13 @@
 using System;
 using System.Collections;
 using System.IO;
-using SparvagnRush.Map;
+using TramRush.Map;
 using UnityEngine;
 
-namespace SparvagnRush.Gameplay
+namespace TramRush.Gameplay
 {
     [DisallowMultipleComponent]
-    public sealed class SparvagnRushBootstrap : MonoBehaviour
+    public sealed class TramRushBootstrap : MonoBehaviour
     {
         public bool StartupReady { get; private set; }
         [SerializeField] private TramTrackNetwork network;
@@ -48,7 +48,7 @@ namespace SparvagnRush.Gameplay
             if (network == null) network = GetComponentInChildren<TramTrackNetwork>();
             if (network == null || network.Paths.Count == 0)
             {
-                Debug.LogError("Spårvagn Rush needs a generated tram network. Run Tools > Göteborg > Generate Map.");
+                Debug.LogError("TramRush needs a generated tram network. Run Tools > Göteborg > Generate Map.");
                 return;
             }
 
@@ -94,7 +94,7 @@ namespace SparvagnRush.Gameplay
             gameObject.AddComponent<TramInterface>().Initialize(manager, overview);
 
             AmbientNpcManager pedestrians = gameObject.AddComponent<AmbientNpcManager>();
-            pedestrians.Initialize(network, tram.transform);
+            pedestrians.Initialize(network, tram.transform, manager);
             StartCoroutine(FinishStartup(pedestrians));
 
 #if DEVELOPMENT_BUILD || UNITY_EDITOR

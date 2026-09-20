@@ -2,14 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using SparvagnRush.Map;
-using SparvagnRush.Gameplay;
+using TramRush.Map;
+using TramRush.Gameplay;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-namespace SparvagnRush.Editor
+namespace TramRush.Editor
 {
     public static partial class GothenburgMapGenerator
     {
@@ -406,7 +406,7 @@ namespace SparvagnRush.Editor
             GameObject tracks = CreateLayer(generatedRoot.transform, "TramTracks", tramMesh.Build("TramTrackMesh"), CreateMaterial("TramTracks", new Color(0.55f, 0.63f, 0.66f), true));
             TramTrackNetwork network = tracks.AddComponent<TramTrackNetwork>();
             network.ReplacePaths(trackPaths);
-            generatedRoot.AddComponent<SparvagnRushBootstrap>().SetNetwork(network);
+            generatedRoot.AddComponent<TramRushBootstrap>().SetNetwork(network);
             CreateLandmark(generatedRoot.transform);
             int detailCount = CreateMapDetails(generatedRoot.transform, trackPaths);
 

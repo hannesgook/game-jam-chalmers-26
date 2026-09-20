@@ -3,7 +3,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 #endif
 
-namespace SparvagnRush.Gameplay
+namespace TramRush.Gameplay
 {
     public sealed class TramFollowCamera : MonoBehaviour
     {

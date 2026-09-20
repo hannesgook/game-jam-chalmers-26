@@ -1,7 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-namespace SparvagnRush.Gameplay
+namespace TramRush.Gameplay
 {
     /// <summary>
     /// The horn, and the driver's answer to a crowd that walks straight at them.

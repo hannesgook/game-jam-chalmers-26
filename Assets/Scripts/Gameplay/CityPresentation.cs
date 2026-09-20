@@ -1,10 +1,10 @@
 using System.Collections.Generic;
-using SparvagnRush.Map;
+using TramRush.Map;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
-namespace SparvagnRush.Gameplay
+namespace TramRush.Gameplay
 {
     /// <summary>Non-destructive presentation upgrade for both existing and regenerated cities.</summary>
     public sealed class CityPresentation : MonoBehaviour

@@ -1,11 +1,11 @@
 using System.Collections.Generic;
-using SparvagnRush.Map;
+using TramRush.Map;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
 
-namespace SparvagnRush.Gameplay
+namespace TramRush.Gameplay
 {
     /// <summary>Plain canvas windows; no immediate-mode HUD or custom GUI skin.</summary>
     public sealed class TramInterface : MonoBehaviour
@@ -17,6 +17,7 @@ namespace SparvagnRush.Gameplay
         private RectTransform root, selection, instructions, hud, map, drivingHelp, notice, ending, intro, destinationBadge;
         private Text selectedText, objective, directions, numbers, speed, notification, result, destinationText, mapCaption, focusText;
         private Image progress, balance;
+        private readonly List<RectTransform> steerMarks = new();
         private readonly List<Button> resultButtons = new();
         private readonly List<CityPlace> searchResults = new();
         private RectTransform searchContent, loadingScreen;
@@ -58,7 +59,7 @@ namespace SparvagnRush.Gameplay
             selection = Window("Choose a station", root, 20, 20, 300, 540);
             selection.anchorMin = new Vector2(0, 0); selection.anchorMax = new Vector2(0, 1);
             selection.offsetMin = new Vector2(20, 104); selection.offsetMax = new Vector2(320, -20);
-            Label(selection, "Spårvagn Rush", 16, 14, 268, 34, 24, true);
+            Label(selection, "TramRush", 16, 14, 268, 34, 24, true);
 
             var inputRect = Rect("Search places", selection, 16, 56, 268, 40);
             inputRect.gameObject.AddComponent<Image>().color = new Color(0.94f, 0.96f, 0.98f);
@@ -122,6 +123,14 @@ namespace SparvagnRush.Gameplay
             speed = Label(hud, "", 16, 158, 308, 22, 14);
             var track = Rect("Balance track", hud, 16, 186, 308, 3);
             track.gameObject.AddComponent<Image>().color = new Color(0.82f, 0.84f, 0.87f);
+            // Four ticks bracketing the lean band that actually throws a switch. The
+            // rule is invisible otherwise, and the player cannot learn a hidden window.
+            for (int i = 0; i < 4; i++)
+            {
+                RectTransform mark = Rect("Steering band", hud, 0, 181, 2, 13);
+                mark.gameObject.AddComponent<Image>().color = new Color(0.55f, 0.60f, 0.67f);
+                steerMarks.Add(mark);
+            }
             balance = Rect("Balance", hud, 166, 182, 8, 13).gameObject.AddComponent<Image>(); balance.color = Accent;
 
             drivingHelp = ControlBar("Controls", 78);
@@ -149,7 +158,7 @@ namespace SparvagnRush.Gameplay
             Button(ending, "Choose a station", 216, 152, 184, 44, overview.Open);
 
             intro = Window("Welcome", root, 0, 0, 430, 158); CentreBottom(intro, 30);
-            Label(intro, "Spårvagn Rush", 20, 14, 390, 34, 26, true);
+            Label(intro, "TramRush", 20, 14, 390, 34, 26, true);
             introDescription = Label(intro, "Balance the tram, follow the blue route, deliver three times.\nSpace honks and throws people clear of the rails.", 20, 54, 390, 46, 15);
             skipIntro = Button(intro, "Choose a station  ·  Skip intro", 20, 106, 390, 36, overview.SkipIntro);
 
@@ -157,14 +166,14 @@ namespace SparvagnRush.Gameplay
             loadingScreen.anchorMin = Vector2.zero; loadingScreen.anchorMax = Vector2.one;
             loadingScreen.offsetMin = loadingScreen.offsetMax = Vector2.zero;
             RectTransform loadingCard = Rect("Loading message", loadingScreen, 0, 0, 430, 146); Centre(loadingCard);
-            Label(loadingCard, "Spårvagn Rush", 20, 12, 390, 38, 26, true);
+            Label(loadingCard, "TramRush", 20, 12, 390, 38, 26, true);
             loadingText = Label(loadingCard, "Preparing the city…", 20, 64, 390, 68, 16);
             destinationBadge = Window("Station marker", root, 0, 0, 180, 46); Centre(destinationBadge);
             destinationText = Label(destinationBadge, "", 8, 5, 164, 36, 14, true);
 
             routeLine = new GameObject("Follow this rail").AddComponent<LineRenderer>();
             routeLine.transform.SetParent(transform, false);
-            routeMaterial = SparvagnRushBootstrap.CreateRuntimeMaterial(Accent);
+            routeMaterial = TramRushBootstrap.CreateRuntimeMaterial(Accent);
             routeLine.sharedMaterial = routeMaterial;
             routeLine.widthMultiplier = 0.35f;
             routeLine.useWorldSpace = true;
@@ -233,7 +242,17 @@ namespace SparvagnRush.Gameplay
             speed.text = $"{Mathf.Abs(game.Player.Speed) * 3.6f:0} km/h    ·    {(game.Player.TravelSign < 0 ? "Reverse" : "Forward")}    ·    Balance";
             float lean = TramController.TravelRelativeLean(game.Player.LeanAngle, game.Player.TravelSign) / game.Player.FallAngle;
             balance.rectTransform.anchoredPosition = new Vector2(166 + Mathf.Clamp(lean, -1, 1) * 150, -182);
-            balance.color = Mathf.Abs(lean) > 0.7f ? new Color(0.88f, 0.24f, 0.16f) : Accent;
+            float fall = Mathf.Max(1f, game.Player.FallAngle);
+            float from = game.Player.SteerFrom / fall, to = game.Player.SteerTo / fall;
+            for (int i = 0; i < steerMarks.Count; i++)
+            {
+                float edge = (i < 2 ? -1f : 1f) * (i % 2 == 0 ? from : to);
+                steerMarks[i].anchoredPosition = new Vector2(169 + Mathf.Clamp(edge, -1f, 1f) * 150, -181);
+            }
+            // Inside the band a lean is steering the next junction; outside it is not.
+            bool steering = Mathf.Abs(lean) >= from && Mathf.Abs(lean) <= to;
+            balance.color = Mathf.Abs(lean) > 0.7f ? new Color(0.88f, 0.24f, 0.16f)
+                : steering ? new Color(0.13f, 0.66f, 0.40f) : Accent;
             mapCaption.text = game.Destination == null ? "Blue marker: your tram" : $"{game.Destination.name}  ·  {game.RemainingDistance:0} m\nOrange arrow: follow this direction";
             result.text = $"{(game.Delivered >= 3 ? "Route complete!" : game.HitPedestrian ? "You hit a pedestrian" : game.Derailed ? "Tram derailed" : "Time is up")}\n\n{game.Delivered} deliveries   ·   Score {game.Score}";
             if (routeLine.enabled)

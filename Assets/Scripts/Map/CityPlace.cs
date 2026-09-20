@@ -1,7 +1,7 @@
 using System.Globalization;
 using UnityEngine;
 
-namespace SparvagnRush.Map
+namespace TramRush.Map
 {
     public sealed class CityPlace
     {

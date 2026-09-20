@@ -1,4 +1,4 @@
-Shader "SparvagnRush/Facade Lettering"
+Shader "TramRush/Facade Lettering"
 {
     Properties { _MainTex ("Font atlas", 2D) = "white" {} }
     SubShader

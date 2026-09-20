@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.UI;
 
-namespace SparvagnRush.Gameplay
+namespace TramRush.Gameplay
 {
     public sealed class TramMinimapView : MonoBehaviour
     {

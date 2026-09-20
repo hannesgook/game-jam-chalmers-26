@@ -1,4 +1,4 @@
-﻿# Playing Spårvagn Rush
+﻿# Playing TramRush
 
 Open `Assets/Scenes/SampleScene.unity` and press Play.
 
@@ -52,20 +52,43 @@ bottom edge names them on screen.
 Balance is fully manual. The tram is an inverted pendulum on a single rail, and
 nothing rights it on the driver's behalf: there is no correction near upright, no
 share of the curve taken off them, and no lean angle the controls settle at by
-themselves. Any lean, however small, keeps growing until it is answered, and a
-curve throws the tram towards the outside on top of that. A/D shifts weight at a
-constant rate, so holding a lean steady means feeding in exactly as much
-counter-weight as gravity is taking away. Damping only slows how fast a lean
-changes; it never pushes back towards upright.
+themselves. Any lean, however small, keeps growing until it is answered. A/D
+shifts weight at a constant rate, so holding a lean steady means feeding in
+exactly as much counter-weight as gravity is taking away. Damping only slows how
+fast a lean changes; it never pushes back towards upright.
+
+Corners are deliberately left out of it. The rails take the sideways load of a
+bend, so a curve neither tips the tram nor props it up: turning is a steering
+problem and never a balance one, and leaning through a junction costs nothing but
+the lean itself.
 
 Leaning tilts the tram and nothing else. It rolls about the underside of its own
 collider, which is measured off the real hull on the first frame rather than
 guessed at, so the bottom of the body stays on the rail at every angle and the
 tram never slides sideways off the track.
 
-Lean past 15 degrees and the next junction that offers a choice takes that side.
-The threshold is deliberately high: at the old 2.5 degrees the wobble of holding
-the tram up was enough to throw a switch, so branches picked themselves.
+Switches are thrown by a lean between 15 and 30 degrees, and only there. Below 15
+the tram is merely wobbling, and at the old threshold of 2.5 degrees the wobble of
+holding it up was enough to throw a switch, so branches picked themselves. Above
+30 the driver is fighting the tram back upright rather than steering it, and a
+recovery swing must not pick a branch nobody asked for. Holding a deliberate,
+modest lean through the junction is the whole of the steering.
+
+The balance meter marks that band with four ticks and turns green while the lean
+sits inside it, because an invisible window is one the player cannot learn.
+
+A committed lean takes the sharpest branch on the side it asked for, and only
+that side. Picking the most rightward of two left-hand branches, which is what
+scoring every exit together does, sends the player the opposite way to the one
+they leaned.
+
+`maximumJunctionTurn` exists only to refuse the branches that double back on
+themselves. A census of the real map is in the repository history: 100 nodes in
+the tram graph have three or more neighbours, offering 944 exits in total, and
+their turn angles are clearly in two groups -- genuine diverging branches up to
+about 130 degrees, then reversals from 140 degrees up. The limit was 50 degrees,
+which rejected 402 of those 944 exits, most of them real branches the player
+could see but never take. At 130 degrees it rejects 260, all of them reversals.
 
 Past 60 degrees the tram is gone, and it gets there fast. The pendulum runs at the
 physically honest sensitivity with light damping, so an unanswered lean reaches
@@ -120,10 +143,30 @@ The rail network supplies connected routes to named stations. Disconnected jobs
 are rejected. Routes refresh once per second. Lines with no other reachable
 station show an explanation instead of assigning an impossible job.
 
+Destinations are drawn at random rather than scored. Every reachable stop is
+collected with its route length, and one is then picked from those that suit:
+first a stop that has not come up in the last four jobs and sits at a sensible
+distance, then any stop at a sensible distance, then anything reachable at all.
+Taking the best-scoring stop instead, which is what the game used to do, returns
+the same answer from the same place every time, so a run kept visiting the same
+two or three stations however long it went on.
+
 ## Pedestrians
 
-The city carries 220 people. They walk at 2.4 to 3.8 m/s and break into a run at
-1.7 times that once they notice the tram. Everybody shares one palette of 14
+The city has a pool of 220 people, and a run works its way up to all of them. It
+opens with 45 on the streets and fills to the full pool as the 120 seconds run
+down, so the first minute is drivable and the last one is not.
+
+Three things escalate together off the same session clock. The crowd cap climbs
+from 45 to 220. The spawn ring closes from 260-420 metres out to 90-200, so early
+arrivals have to walk a long way to reach you and late ones appear just out of
+sight. The sweep rate goes from 2 pooled people inspected per frame to 10, so the
+streets refill faster the further in you are. Starting a run, including a retry,
+stands down anybody already inside the opening ring, so a run always begins on
+quiet streets rather than on top of whoever happened to be at the station.
+
+They walk at 1.9 to 3.0 m/s and break into a run at
+1.6 times that once they notice the tram. Everybody shares one palette of 14
 outfits and 6 skin tones rather than owning their own materials, so a crowd this
 size can still batch instead of costing a draw call each.
 
@@ -134,12 +177,14 @@ them. Once somebody has locked on they stay locked on until they are recycled, s
 nobody snaps back onto the street graph behind you.
 
 The crowd is built behind the loading screen and spread over the whole city, so
-nobody is watching when it appears. Replacements are placed 90 to 200 metres out,
-near enough to reach you but only ever where the camera cannot see: off screen, or
-behind a building. The overhead minimap deliberately does not count as a view,
-because 360 metres across a few hundred pixels puts a person under one pixel.
-A person is recycled once they are beyond 300 metres and out of sight, and
-somebody the tram knocks over is recycled as soon as nobody is looking.
+nobody is watching when it appears. Replacements are only ever placed where the
+camera cannot see: off screen, or behind a building. The overhead minimap
+deliberately does not count as a view, because 360 metres across a few hundred
+pixels puts a person under one pixel. Somebody is recycled once they are past the
+spawn ring plus 110 metres and out of sight, and somebody the tram knocks over is
+recycled as soon as nobody is looking. Nobody is ever removed while they can be
+seen or while they are still close enough to matter, however far over the crowd
+cap the streets happen to be.
 
 ## The horn
 

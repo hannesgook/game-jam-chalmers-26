@@ -1,9 +1,9 @@
 using System.Collections.Generic;
-using SparvagnRush.Map;
+using TramRush.Map;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-namespace SparvagnRush.Gameplay
+namespace TramRush.Gameplay
 {
     public sealed class TramController : MonoBehaviour
     {
@@ -12,8 +12,8 @@ namespace SparvagnRush.Gameplay
         [SerializeField] private float coastingDrag = 8f;
 
         [Header("Curve handling")]
-        [Tooltip("Sharpest branch, in degrees, the tram will switch onto at a junction. Anything sharper doubles back on itself and is never offered.")]
-        [SerializeField] private float maximumJunctionTurn = 50f;
+        [Tooltip("Sharpest branch a switch will route onto. Only there to refuse the ones that double back: measured on the real map, genuine branches run up to about 130 degrees and reversals start near 140.")]
+        [SerializeField] private float maximumJunctionTurn = 130f;
         [Tooltip("Lateral acceleration allowed in a bend. 0 carries full speed through every curve; raise it to make tight curves slow the tram down.")]
         [SerializeField] private float curveLateralAcceleration = 0f;
         [Tooltip("How hard the tram brakes for the end of a line, and for curves when the setting above is above zero.")]
@@ -28,6 +28,8 @@ namespace SparvagnRush.Gameplay
         [SerializeField] private float headingLookAhead = 6f;
         [Tooltip("Lean this many degrees before a junction is committed left or right. High enough that a switch follows a deliberate lean rather than the wobble of holding the tram up.")]
         [SerializeField] private float junctionLeanThreshold = 15f;
+        [Tooltip("Lean further than this and the switch is not thrown at all. Past it the tram is being fought back upright rather than steered, and a recovery swing should not pick a branch nobody asked for.")]
+        [SerializeField] private float junctionLeanLimit = 30f;
 
         [Header("Balance")]
         [Tooltip("How hard the world fights to tip the tram over. Scales both the sideways throw of a curve and how fast a lean runs away. Lower is more forgiving; 1 is the physically honest value.")]
@@ -42,8 +44,6 @@ namespace SparvagnRush.Gameplay
         [SerializeField] private float leanInputResponse = 7f;
         [Tooltip("Lean past this and the tram is gone.")]
         [SerializeField] private float fallAngle = 60f;
-        [Tooltip("Length of track read to work out the curve the tram is entering.")]
-        [SerializeField] private float curvatureSample = 8f;
 
         [Header("Derailment")]
         [Tooltip("Sideways speed the wreck is thrown at, the way it was falling. Very large on purpose: losing the tram should fling it across the street.")]
@@ -82,9 +82,16 @@ namespace SparvagnRush.Gameplay
         private int travelSign = 1;
         public int TravelSign => travelSign;
         public static float TravelRelativeLean(float lean, int direction) => lean * direction;
-        public static int JunctionForLean(float bodyLean, float threshold, int direction)
+        /// <summary>
+        /// Which way a switch is thrown for a given lean: -1 left, 1 right, 0 straight.
+        /// Only the band between <paramref name="threshold"/> and <paramref name="limit"/>
+        /// steers. Below it the tram is merely wobbling; above it the driver is fighting
+        /// to stay upright, and a recovery swing must not choose a branch for them.
+        /// </summary>
+        public static int JunctionForLean(float bodyLean, float threshold, float limit, int direction)
         {
             float lean = TravelRelativeLean(bodyLean, direction);
+            if (Mathf.Abs(lean) > limit) return 0;
             return lean < -threshold ? -1 : lean > threshold ? 1 : 0;
         }
         private bool derailed;
@@ -101,6 +108,9 @@ namespace SparvagnRush.Gameplay
         public float Speed => speed;
         public float LeanAngle => leanAngle;
         public float FallAngle => fallAngle;
+        /// <summary>The lean band that throws a switch, for the balance meter to mark.</summary>
+        public float SteerFrom => junctionLeanThreshold;
+        public float SteerTo => junctionLeanLimit;
         public bool Derailed => derailed;
 
         public void Initialize(TramTrackNetwork trackNetwork, Vector3 requestedStart)
@@ -157,7 +167,7 @@ namespace SparvagnRush.Gameplay
             // Keep the last direction at rest so the controls do not flip while braking.
             if (speed > 0.15f) travelSign = 1;
             else if (speed < -0.15f) travelSign = -1;
-            junctionChoice = JunctionForLean(leanAngle, junctionLeanThreshold, travelSign);
+            junctionChoice = JunctionForLean(leanAngle, junctionLeanThreshold, junctionLeanLimit, travelSign);
 
             // A tram has to be slow enough to hold the rail through the bend it is entering.
             bool forward = (Mathf.Abs(speed) > 0.01f ? speed : throttle) >= 0f;
@@ -224,44 +234,34 @@ namespace SparvagnRush.Gameplay
             if (neighbours.Count == 1) return neighbours[0] == previous ? -1 : neighbours[0];
 
             Vector3 incoming = (graph[reached].position - graph[previous].position).normalized;
-            int best = -1;
-            float bestScore = junctionChoice < 0 ? float.MaxValue : float.MinValue;
-            float straightest = float.MaxValue;
-            int fallback = -1;
-            float fallbackTurn = float.MaxValue;
+            int straightest = -1, committed = -1, fallback = -1;
+            float straightestTurn = float.MaxValue, committedTurn = -1f, fallbackTurn = float.MaxValue;
+
             foreach (int candidate in neighbours)
             {
                 if (candidate == previous) continue;
                 Vector3 outgoing = (graph[candidate].position - graph[reached].position).normalized;
                 float angle = Vector3.SignedAngle(incoming, outgoing, Vector3.up);
+                float turn = Mathf.Abs(angle);
+
                 // Kept regardless of the turn limit: where the geometry leaves only one
                 // way on, refusing it would strand the tram mid-track.
-                if (Mathf.Abs(angle) < fallbackTurn)
-                {
-                    fallbackTurn = Mathf.Abs(angle);
-                    fallback = candidate;
-                }
+                if (turn < fallbackTurn) { fallbackTurn = turn; fallback = candidate; }
 
                 // No switch routes a tram back the way it came, so branches that double
                 // back are not on offer however hard the player steers into them.
-                if (Mathf.Abs(angle) > maximumJunctionTurn) continue;
-                if (junctionChoice < 0 && angle < bestScore)
-                {
-                    bestScore = angle;
-                    best = candidate;
-                }
-                else if (junctionChoice > 0 && angle > bestScore)
-                {
-                    bestScore = angle;
-                    best = candidate;
-                }
-                else if (junctionChoice == 0 && Mathf.Abs(angle) < straightest)
-                {
-                    straightest = Mathf.Abs(angle);
-                    best = candidate;
-                }
+                if (turn > maximumJunctionTurn) continue;
+                if (turn < straightestTurn) { straightestTurn = turn; straightest = candidate; }
+
+                // A committed lean takes the sharpest branch on the side it asked for,
+                // and only that side. Taking the most rightward of two left branches
+                // would send the player the opposite way to the one they leaned.
+                if (junctionChoice == 0 || (angle < 0f ? -1 : 1) != junctionChoice) continue;
+                if (turn > committedTurn) { committedTurn = turn; committed = candidate; }
             }
-            return best >= 0 ? best : fallback;
+
+            if (junctionChoice != 0 && committed >= 0) return committed;
+            return straightest >= 0 ? straightest : fallback;
         }
 
         // Fastest the tram may be going right now to still hold every curve ahead of it.
@@ -341,23 +341,26 @@ namespace SparvagnRush.Gameplay
         }
 
         // The tram is an inverted pendulum sitting on one rail line: gravity tips it
-        // further over the moment it leaves upright, a curve throws it towards the
-        // outside, and shifting weight with A/D is the only thing holding it up.
+        // further over the moment it leaves upright, and shifting weight with A/D is
+        // the only thing holding it up.
         //
-        // Nothing here rights the tram on the driver's behalf. There is no correction
-        // near upright, no share of the curve taken off them, and no angle the
-        // controls settle at by themselves: every lean, however small, keeps growing
-        // until it is answered. Damping only slows how fast that happens.
+        // Corners are deliberately left out of it. The rails take the sideways load
+        // of a bend, so a curve neither tips the tram nor props it up, and leaning
+        // through a junction stays a steering decision rather than a balance one.
+        //
+        // Nothing here rights the tram on the driver's behalf either. There is no
+        // correction near upright and no angle the controls settle at by themselves:
+        // every lean, however small, keeps growing until it is answered. Damping only
+        // slows how fast that happens.
         private void UpdateLean(float steer, float deltaTime)
         {
             if (derailed || deltaTime <= 0f) return;
 
+            // Softening this slows how fast a wobble runs away. It scales the
+            // pendulum, not the driver's share.
             float sensitivity = Mathf.Max(0f, balanceSensitivity);
-            // Softening this slows how fast a wobble runs away and lowers the lean a
-            // curve demands. It scales the whole pendulum, not the driver's share.
-            float lateral = LateralAcceleration() * sensitivity;
             float leanRadians = leanAngle * Mathf.Deg2Rad;
-            float toppling = (Physics.gravity.magnitude * Mathf.Sin(leanRadians) - lateral * Mathf.Cos(leanRadians))
+            float toppling = Physics.gravity.magnitude * Mathf.Sin(leanRadians)
                              / Mathf.Max(0.2f, centreOfMassHeight) * Mathf.Rad2Deg * sensitivity;
 
             // A/D shifts weight at a constant rate. Holding a lean steady means
@@ -366,22 +369,6 @@ namespace SparvagnRush.Gameplay
             leanVelocity += (toppling + steer * leanAuthority - leanDamping * leanVelocity) * deltaTime;
             leanAngle += leanVelocity * deltaTime;
             if (Mathf.Abs(leanAngle) > fallAngle) Derail();
-        }
-
-        // Sideways acceleration the rails are about to impose, positive into a right turn.
-        // Read slightly ahead of the tram so the curve is felt as it is entered.
-        private float LateralAcceleration()
-        {
-            float half = Mathf.Max(1f, curvatureSample * 0.5f);
-            bool reverse = travelSign < 0;
-            Vector3 first = TrackPointAhead(half, reverse) - TrackPointAhead(0f, reverse);
-            Vector3 second = TrackPointAhead(half * 2f, reverse) - TrackPointAhead(half, reverse);
-            first.y = 0f;
-            second.y = 0f;
-            if (first.sqrMagnitude < 0.01f || second.sqrMagnitude < 0.01f) return 0f;
-
-            float turn = Vector3.SignedAngle(first, second, Vector3.up) * Mathf.Deg2Rad;
-            return speed * speed * (turn / half) * travelSign;
         }
 
         private void Derail()

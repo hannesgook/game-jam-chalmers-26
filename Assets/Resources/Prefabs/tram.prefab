@@ -92,7 +92,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ceabb207d76dba24ab520049a4ca5292, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::SparvagnRush.Gameplay.TramAudio
+  m_EditorClassIdentifier: Assembly-CSharp::TramRush.Gameplay.TramAudio
   masterVolume: 1
   engineIdleVolume: 0.12
   engineMaxVolume: 0.4

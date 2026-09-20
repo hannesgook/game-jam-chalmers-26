@@ -4,12 +4,12 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
-using SparvagnRush.Map;
+using TramRush.Map;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Networking;
 
-namespace SparvagnRush.Editor
+namespace TramRush.Editor
 {
     /// <summary>
     /// Editor-side twin of Tools/FetchBuildings.py, so a fresh clone can pull the
@@ -104,7 +104,7 @@ namespace SparvagnRush.Editor
                 Encoding.UTF8.GetBytes("data=" + UnityWebRequest.EscapeURL(BuildingQuery)));
             request.downloadHandler = new DownloadHandlerBuffer();
             request.SetRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-            request.SetRequestHeader("User-Agent", "SparvagnRush-gamejam/1.0 (OSM building import)");
+            request.SetRequestHeader("User-Agent", "TramRush-gamejam/1.0 (OSM building import)");
             request.timeout = 300;
 
             UnityWebRequestAsyncOperation operation = request.SendWebRequest();

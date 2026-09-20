@@ -1,9 +1,9 @@
 using System.Collections.Generic;
-using SparvagnRush.Map;
+using TramRush.Map;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-namespace SparvagnRush.Gameplay
+namespace TramRush.Gameplay
 {
     public sealed class TramGameManager : MonoBehaviour
     {
@@ -19,6 +19,14 @@ namespace SparvagnRush.Gameplay
         private Material markerMaterial;
         private readonly List<Transform> passengers = new();
         private readonly List<Vector3> route = new();
+        // Station choice scratch. Kept as fields so issuing a job allocates nothing.
+        private readonly List<TramStation> reachable = new();
+        private readonly List<float> reachableDistance = new();
+        private readonly List<TramStation> shortlist = new();
+        private readonly List<TramStation> recentStations = new();
+        private readonly List<Vector3> scratchRoute = new();
+        // How many recent destinations to avoid repeating, when there is the choice.
+        private const int RecentMemory = 4;
 
         private TramStation destination;
         private TramStation lastStation;
@@ -39,6 +47,10 @@ namespace SparvagnRush.Gameplay
         public int Combo => combo;
         public int Delivered { get; private set; }
         public float SessionTime => sessionTime;
+        /// <summary>0 at the start of a run, 1 at the end. Drives how busy the streets get.</summary>
+        public float SessionProgress => 1f - Mathf.Clamp01(sessionTime / SessionDuration);
+        /// <summary>Bumped by every run, so the crowd can tell a retry from a running clock.</summary>
+        public int RunId { get; private set; }
         public float JobTime => jobTime;
         public float BoardingProgress => boarding / BoardingDuration;
         public bool Carrying => carryingPassenger;
@@ -101,10 +113,12 @@ namespace SparvagnRush.Gameplay
         private void BeginSession()
         {
             cinematic?.Stop();
+            RunId++;
             sessionTime = SessionDuration;
             score = combo = Delivered = 0;
             carryingPassenger = sessionEnded = derailed = hitPedestrian = false;
             lastStation = null;
+            recentStations.Clear();
             toastTime = boarding = 0;
             nextPassengerDelay = 0.25f;
             tram.Respawn();
@@ -228,31 +242,42 @@ namespace SparvagnRush.Gameplay
 
         private void SpawnObjective(bool isDropOff)
         {
-            // Try a shuffled set of named stops. Never issue an unreachable rail job.
-            var candidateRoute = new List<Vector3>();
-            TramStation chosen = null;
-            float best = float.PositiveInfinity;
-            int offset = random.Next(Stations.Count);
-            for (int i = 0; i < Stations.Count; i++)
+            // Every named stop this tram can actually reach, and how far the rails say
+            // it is. Never issue an unreachable rail job.
+            reachable.Clear();
+            reachableDistance.Clear();
+            foreach (TramStation station in Stations)
             {
-                TramStation station = Stations[(i + offset) % Stations.Count];
                 if (station == lastStation) continue;
-                if (!network.FindRoute(tram.transform.position, station.position, candidateRoute)) continue;
-                float distance = RouteLength(candidateRoute);
-                // Prefer nearby pickups; deliveries aim for a meaningful but achievable trip.
-                float preference = isDropOff ? Mathf.Abs(distance - 350f) : distance;
-                if (preference >= best) continue;
-                best = preference;
-                chosen = station;
-                route.Clear(); route.AddRange(candidateRoute);
+                if (!network.FindRoute(tram.transform.position, station.position, scratchRoute)) continue;
+                reachable.Add(station);
+                reachableDistance.Add(RouteLength(scratchRoute));
             }
-            if (chosen == null)
+            if (reachable.Count == 0)
             {
                 toast = "No other connected station on this line\nEsc to choose another departure";
                 toastTime = 5f;
                 nextPassengerDelay = 8f;
                 return;
             }
+
+            // Then pick at random from the ones that suit. Scoring the whole list and
+            // taking the best always returns the same stop from the same place, which
+            // is what made a run visit the same two or three stations all the way
+            // through. Each pass is looser than the last: a stop that has not come up
+            // lately at a sensible distance, then any stop at a sensible distance,
+            // then whatever is reachable at all.
+            float nearest = isDropOff ? 150f : 40f;
+            float furthest = isDropOff ? 650f : 420f;
+            if (!Shortlist(nearest, furthest, true) && !Shortlist(nearest, furthest, false))
+                Shortlist(0f, float.MaxValue, false);
+
+            TramStation chosen = shortlist[random.Next(shortlist.Count)];
+            network.FindRoute(tram.transform.position, chosen.position, route);
+            recentStations.Remove(chosen);
+            recentStations.Add(chosen);
+            while (recentStations.Count > RecentMemory) recentStations.RemoveAt(0);
+
             destination = chosen;
             var edge = network.FindClosestEdge(chosen.position);
             stationTangent = (network.Graph[edge.B].position - network.Graph[edge.A].position).normalized;
@@ -283,6 +308,22 @@ namespace SparvagnRush.Gameplay
             AnimatePassengers();
         }
 
+        /// <summary>
+        /// Collects the reachable stops inside a distance band into <see cref="shortlist"/>.
+        /// Returns false when that leaves nothing, so the caller can loosen and retry.
+        /// </summary>
+        private bool Shortlist(float nearest, float furthest, bool unvisitedOnly)
+        {
+            shortlist.Clear();
+            for (int i = 0; i < reachable.Count; i++)
+            {
+                if (reachableDistance[i] < nearest || reachableDistance[i] > furthest) continue;
+                if (unvisitedOnly && recentStations.Contains(reachable[i])) continue;
+                shortlist.Add(reachable[i]);
+            }
+            return shortlist.Count > 0;
+        }
+
         private static float RouteLength(List<Vector3> points)
         {
             float result = 0;
@@ -295,7 +336,7 @@ namespace SparvagnRush.Gameplay
             if (marker != null) return;
             marker = new GameObject("Station boarding area");
             marker.transform.SetParent(transform, false);
-            markerMaterial = SparvagnRushBootstrap.CreateRuntimeMaterial(Color.white);
+            markerMaterial = TramRushBootstrap.CreateRuntimeMaterial(Color.white);
             stationRing = marker.AddComponent<LineRenderer>();
             stationRing.sharedMaterial = markerMaterial;
             stationRing.useWorldSpace = false;
