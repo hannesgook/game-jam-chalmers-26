@@ -11,16 +11,20 @@ namespace SparvagnRush.Gameplay
         private const float Clearance = 0.8f;
         private readonly Dictionary<Vector2Int, List<int>> cells = new();
         private readonly List<Vector2[]> triangles = new();
+        // Rails are the one obstruction somebody can decide to walk onto. Water and
+        // walls stop everybody, so each triangle remembers which kind it is.
+        private readonly List<bool> isTrack = new();
         private readonly HashSet<int> visited = new();
         public bool Ready { get; }
 
         public PedestrianWalkableArea(Transform mapRoot)
         {
-            Ready = AddLayer(mapRoot.Find("TramTracks")) && AddLayer(mapRoot.Find("Water"));
+            Ready = AddLayer(mapRoot.Find("TramTracks"), true) && AddLayer(mapRoot.Find("Water"), false);
+            AddLayer(mapRoot.Find("Buildings"), false);
             if (!Ready) Debug.LogWarning("Pedestrians disabled: readable track and water meshes are required.");
         }
 
-        private bool AddLayer(Transform layer)
+        private bool AddLayer(Transform layer, bool track)
         {
             Mesh mesh = layer != null ? layer.GetComponent<MeshFilter>()?.sharedMesh : null;
             if (mesh == null || !mesh.isReadable) return false;
@@ -32,6 +36,7 @@ namespace SparvagnRush.Gameplay
                 for (int j = 0; j < 3; j++) triangle[j] = Flat(layer.TransformPoint(vertices[indices[i + j]]));
                 int index = triangles.Count;
                 triangles.Add(triangle);
+                isTrack.Add(track);
                 Vector2 min = Vector2.Min(triangle[0], Vector2.Min(triangle[1], triangle[2]));
                 Vector2 max = Vector2.Max(triangle[0], Vector2.Max(triangle[1], triangle[2]));
                 Vector2Int first = Cell(min), last = Cell(max);
@@ -46,7 +51,11 @@ namespace SparvagnRush.Gameplay
             return true;
         }
 
-        public bool Allows(Vector3 from, Vector3 to)
+        /// <param name="avoidTrack">
+        /// False for somebody walking onto the rails on purpose. Water and buildings
+        /// still block them; only the track exclusion is lifted.
+        /// </param>
+        public bool Allows(Vector3 from, Vector3 to, bool avoidTrack = true)
         {
             if (!Ready) return false;
             Vector2 a = Flat(from), b = Flat(to);
@@ -60,6 +69,7 @@ namespace SparvagnRush.Gameplay
                 foreach (int index in bucket)
                 {
                     if (!visited.Add(index)) continue;
+                    if (!avoidTrack && isTrack[index]) continue;
                     Vector2[] t = triangles[index];
                     if (Inside(a, t) || Inside(b, t)) return false;
                     for (int edge = 0; edge < 3; edge++)

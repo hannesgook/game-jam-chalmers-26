@@ -23,7 +23,8 @@ namespace SparvagnRush.Gameplay
         private TramStation destination;
         private TramStation lastStation;
         private float sessionTime, jobTime, nextPassengerDelay, boarding, routeTimer, toastTime;
-        private bool carryingPassenger, sessionEnded, derailed;
+        private bool carryingPassenger, sessionEnded, derailed, hitPedestrian;
+        private TramCollisionCinematic cinematic;
         private int score, combo;
         private string toast = "";
         private Vector3 stationTangent, stationSide;
@@ -43,6 +44,11 @@ namespace SparvagnRush.Gameplay
         public bool Carrying => carryingPassenger;
         public bool Ended => sessionEnded;
         public bool Derailed => derailed;
+        public bool HitPedestrian => hitPedestrian;
+        /// <summary>True while the crash camera has the screen to itself.</summary>
+        public bool CinematicPlaying => cinematic != null && cinematic.Playing;
+        /// <summary>The result window waits for the crash camera to make its point.</summary>
+        public bool ShowResult => sessionEnded && (cinematic == null || cinematic.Revealed);
         public string Notice => toastTime > 0 ? toast : "";
         public float RemainingDistance => RouteLength(route);
         public void Retry() => BeginSession();
@@ -66,6 +72,7 @@ namespace SparvagnRush.Gameplay
             network = trackNetwork;
             tram = player;
             tramAudio = player.GetComponent<TramAudio>();
+            cinematic = gameObject.AddComponent<TramCollisionCinematic>();
             ground = transform.Find("Ground")?.GetComponent<Collider>();
             Stations = TramStation.Collect(transform, network);
             if (Stations.Count == 0)
@@ -76,6 +83,7 @@ namespace SparvagnRush.Gameplay
 
         public void ShowCity()
         {
+            cinematic?.Stop();
             ChoosingStop = true;
             tram.Respawn();
             tram.gameObject.SetActive(false);
@@ -92,15 +100,30 @@ namespace SparvagnRush.Gameplay
 
         private void BeginSession()
         {
+            cinematic?.Stop();
             sessionTime = SessionDuration;
             score = combo = Delivered = 0;
-            carryingPassenger = sessionEnded = derailed = false;
+            carryingPassenger = sessionEnded = derailed = hitPedestrian = false;
             lastStation = null;
             toastTime = boarding = 0;
             nextPassengerDelay = 0.25f;
             tram.Respawn();
             Camera.main?.GetComponent<TramFollowCamera>()?.ResetFraming();
             ClearObjective();
+        }
+
+        /// <summary>
+        /// Touching anybody ends the run outright. The tram is stopped where it is
+        /// and the crash camera freezes the game around the impact.
+        /// </summary>
+        public void EndByCollision(Vector3 point)
+        {
+            if (sessionEnded || ChoosingStop) return;
+            sessionEnded = hitPedestrian = true;
+            combo = 0;
+            ClearObjective();
+            tram.enabled = false;
+            cinematic?.Begin(point, tram.transform);
         }
 
         private void Update()

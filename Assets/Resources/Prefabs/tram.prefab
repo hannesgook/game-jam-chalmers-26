@@ -99,13 +99,7 @@ MonoBehaviour:
   ambienceVolume: 0.25
   successVolume: 0.6
   explosionVolume: 0.85
-  npcHitVolume: 0.7
   explosionSound: {fileID: 8300000, guid: 4974e78322d532743924c2f966b77d72, type: 3}
-  npcHitSounds:
-  - {fileID: 8300000, guid: e83b3690580ea99438a9caef47fa6dfb, type: 3}
-  - {fileID: 8300000, guid: 7d411fc4709a42a42a0a53fab200720b, type: 3}
-  - {fileID: 8300000, guid: 8a1a6eac25b0dcc44b7b30ebb6db7292, type: 3}
-  - {fileID: 8300000, guid: 688391681ad8a3d499c6117205ce49db, type: 3}
 --- !u!1 &4735642448390844595 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: -8236076569268209247, guid: d0016fa7647615c41864e37ca6d5ccdd, type: 3}

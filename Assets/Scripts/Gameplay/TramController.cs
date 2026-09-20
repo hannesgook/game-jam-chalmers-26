@@ -26,37 +26,32 @@ namespace SparvagnRush.Gameplay
         [SerializeField] private float maximumYawRate = 180f;
         [Tooltip("How far ahead the nose aims, which sweeps the body through a corner instead of pivoting it on the node.")]
         [SerializeField] private float headingLookAhead = 6f;
-        [Tooltip("Lean this many degrees before a junction is committed left or right.")]
-        [SerializeField] private float junctionLeanThreshold = 2.5f;
+        [Tooltip("Lean this many degrees before a junction is committed left or right. High enough that a switch follows a deliberate lean rather than the wobble of holding the tram up.")]
+        [SerializeField] private float junctionLeanThreshold = 15f;
 
         [Header("Balance")]
         [Tooltip("How hard the world fights to tip the tram over. Scales both the sideways throw of a curve and how fast a lean runs away. Lower is more forgiving; 1 is the physically honest value.")]
-        [SerializeField] private float balanceSensitivity = 0.25f;
+        [SerializeField] private float balanceSensitivity = 1f;
         [Tooltip("Height of the centre of mass above the rails. Lower topples faster and is twitchier to hold.")]
         [SerializeField] private float centreOfMassHeight = 1.8f;
         [Tooltip("Degrees per second squared of lean the driver can force by holding A or D.")]
-        [SerializeField] private float leanAuthority = 320f;
-        [Tooltip("How fast lean movement bleeds away. Higher is easier to hold steady.")]
-        [SerializeField] private float leanDamping = 2f;
-        [Tooltip("Gentle automatic correction near upright. It removes tiny oscillations without playing the hard corners for you.")]
-        [SerializeField] private float stabilityAssist = 42f;
-        [Range(0f, 1f)]
-        [Tooltip("Fraction of curve force automatically compensated. 0 is fully manual; 1 perfectly counters a steady curve.")]
-        [SerializeField] private float curveBalanceAssist = 0.22f;
+        [SerializeField] private float leanAuthority = 360f;
+        [Tooltip("Viscous drag on lean movement. It slows how fast a lean changes; it never pushes the tram back towards upright.")]
+        [SerializeField] private float leanDamping = 2.6f;
         [Tooltip("How quickly A/D lean input ramps in and out.")]
         [SerializeField] private float leanInputResponse = 7f;
         [Tooltip("Lean past this and the tram is gone.")]
-        [SerializeField] private float fallAngle = 35f;
+        [SerializeField] private float fallAngle = 60f;
         [Tooltip("Length of track read to work out the curve the tram is entering.")]
         [SerializeField] private float curvatureSample = 8f;
 
         [Header("Derailment")]
-        [Tooltip("Sideways speed the wreck is thrown at, the way it was falling.")]
-        [SerializeField] private float derailSidewaysSpeed = 9f;
-        [Tooltip("Upward kick as the wheels leave the rail.")]
-        [SerializeField] private float derailLift = 5f;
+        [Tooltip("Sideways speed the wreck is thrown at, the way it was falling. Very large on purpose: losing the tram should fling it across the street.")]
+        [SerializeField] private float derailSidewaysSpeed = 40f;
+        [Tooltip("Upward kick as the wheels leave the rail. This is what gets the wreck properly airborne rather than sliding.")]
+        [SerializeField] private float derailLift = 15f;
         [Tooltip("Degrees per second the wreck tumbles at.")]
-        [SerializeField] private float derailSpin = 320f;
+        [SerializeField] private float derailSpin = 520f;
         [SerializeField] private float derailMass = 1200f;
         [Tooltip("How far the underside of the wreck may sink into the ground before it is pushed back out.")]
         [SerializeField] private float wreckSinkTolerance = 0.5f;
@@ -97,6 +92,11 @@ namespace SparvagnRush.Gameplay
         private Collider hull;
         private float derailFloor;
         private Vector3 startRequest;
+        // How far the underside of the body sits below the transform pivot, measured
+        // off the real collider rather than guessed. The rail runs through that
+        // point, so leaning rotates about it and the bottom never leaves the rail.
+        private float railOffset = 1.1f;
+        private bool railOffsetMeasured;
 
         public float Speed => speed;
         public float LeanAngle => leanAngle;
@@ -112,6 +112,22 @@ namespace SparvagnRush.Gameplay
             targetNode = edge.B;
             float length = Vector3.Distance(network.Graph[currentNode].position, network.Graph[targetNode].position);
             edgeProgress = edge.T * length;
+            ApplyTransform();
+        }
+
+        // Initialize runs before the collider has a world position to measure, so
+        // the real offset is taken once the first frame has placed everything.
+        private void Start()
+        {
+            if (railOffsetMeasured) return;
+            railOffsetMeasured = true;
+            Collider body = GetComponentInChildren<Collider>();
+            if (body == null) return;
+            Physics.SyncTransforms();
+            // Bounds are world space and the tram is still upright here, so this is
+            // simply how far the underside hangs below the pivot.
+            float measured = transform.position.y - body.bounds.min.y;
+            if (measured > 0.05f) railOffset = measured;
             ApplyTransform();
         }
 
@@ -327,24 +343,27 @@ namespace SparvagnRush.Gameplay
         // The tram is an inverted pendulum sitting on one rail line: gravity tips it
         // further over the moment it leaves upright, a curve throws it towards the
         // outside, and shifting weight with A/D is the only thing holding it up.
+        //
+        // Nothing here rights the tram on the driver's behalf. There is no correction
+        // near upright, no share of the curve taken off them, and no angle the
+        // controls settle at by themselves: every lean, however small, keeps growing
+        // until it is answered. Damping only slows how fast that happens.
         private void UpdateLean(float steer, float deltaTime)
         {
             if (derailed || deltaTime <= 0f) return;
 
             float sensitivity = Mathf.Max(0f, balanceSensitivity);
-            // Softening the throw lowers the lean a curve demands; softening the whole
-            // term slows how fast a wobble runs away. One knob, both effects.
-            float lateral = LateralAcceleration() * sensitivity * (1f - curveBalanceAssist);
+            // Softening this slows how fast a wobble runs away and lowers the lean a
+            // curve demands. It scales the whole pendulum, not the driver's share.
+            float lateral = LateralAcceleration() * sensitivity;
             float leanRadians = leanAngle * Mathf.Deg2Rad;
             float toppling = (Physics.gravity.magnitude * Mathf.Sin(leanRadians) - lateral * Mathf.Cos(leanRadians))
                              / Mathf.Max(0.2f, centreOfMassHeight) * Mathf.Rad2Deg * sensitivity;
 
-            // Only assists the calm centre of the meter. Past half way the player still
-            // has to commit to the correction, preserving the risk/reward mechanic.
-            float safeZone = Mathf.Clamp01(1f - Mathf.Abs(leanAngle) / Mathf.Max(1f, fallAngle * 0.55f));
-            float restoring = -leanAngle / Mathf.Max(1f, fallAngle) * stabilityAssist * safeZone;
-
-            leanVelocity += (toppling + restoring + steer * leanAuthority - leanDamping * leanVelocity) * deltaTime;
+            // A/D shifts weight at a constant rate. Holding a lean steady means
+            // feeding in exactly as much counter-weight as gravity is taking away,
+            // so the driver is working the whole time the tram is off upright.
+            leanVelocity += (toppling + steer * leanAuthority - leanDamping * leanVelocity) * deltaTime;
             leanAngle += leanVelocity * deltaTime;
             if (Mathf.Abs(leanAngle) > fallAngle) Derail();
         }
@@ -380,11 +399,15 @@ namespace SparvagnRush.Gameplay
 
             Rigidbody body = gameObject.AddComponent<Rigidbody>();
             body.mass = derailMass;
-            // Carries the momentum it had, thrown the way it was already falling.
+            // Carries the momentum it had, thrown hard the way it was already
+            // falling. The sideways throw scales with how fast it was going, so a
+            // derail at speed hurls the wreck across the street and a slow topple
+            // just falls over.
+            float momentum = Mathf.Clamp(Mathf.Abs(speed) / Mathf.Max(1f, maximumSpeed), 0.6f, 1f);
             body.linearVelocity = transform.forward * speed
-                                  + transform.right * (side * derailSidewaysSpeed)
-                                  + Vector3.up * derailLift;
-            body.angularVelocity = transform.forward * (-side * derailSpin * Mathf.Deg2Rad);
+                                  + transform.right * (side * derailSidewaysSpeed * momentum)
+                                  + Vector3.up * (derailLift * momentum);
+            body.angularVelocity = transform.forward * (-side * derailSpin * momentum * Mathf.Deg2Rad);
             // A wreck thrown at 24 m/s clears half a metre per physics step, which is
             // plenty to pass straight through a mesh collider that has no thickness.
             body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
@@ -471,12 +494,12 @@ namespace SparvagnRush.Gameplay
             Vector3 b = network.Graph[targetNode].position;
             float length = Vector3.Distance(a, b);
             float t = length < 0.001f ? 0f : Mathf.Clamp01(edgeProgress / length);
-            Vector3 position = Vector3.Lerp(a, b, t) + Vector3.up * 1.1f;
+            Vector3 position = Vector3.Lerp(a, b, t) + Vector3.up * railOffset;
             transform.position = position;
 
             // Aiming at a point further down the track sweeps the body through a bend
             // rather than pivoting it on the node, and keeps the pitch of the slope.
-            Vector3 aim = TrackPointAhead(headingLookAhead, travelSign < 0) + Vector3.up * 1.1f;
+            Vector3 aim = TrackPointAhead(headingLookAhead, travelSign < 0) + Vector3.up * railOffset;
             Vector3 direction = travelSign < 0 ? position - aim : aim - position;
             if (direction.sqrMagnitude < 0.001f) direction = b - a;
             if (direction.sqrMagnitude < 0.001f) return;
@@ -488,6 +511,9 @@ namespace SparvagnRush.Gameplay
             headingInitialised = true;
             // Roll sits outside the slew so leaning never drags the heading with it.
             transform.rotation = trackRotation * Quaternion.Euler(0f, 0f, -leanAngle);
+            // Pure roll about the rail contact. The pivot is the underside of the
+            // body, so the tram tilts on the rail rather than sliding off it.
+            transform.position = Vector3.Lerp(a, b, t) + transform.rotation * (Vector3.up * railOffset);
         }
     }
 }

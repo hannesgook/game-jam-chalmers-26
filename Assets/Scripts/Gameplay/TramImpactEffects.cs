@@ -7,21 +7,27 @@ namespace SparvagnRush.Gameplay
     public sealed class TramImpactEffects : MonoBehaviour
     {
         [SerializeField] private float minimumImpactSpeed = 2f;
+        [Tooltip("Below this speed somebody reaching the tram is boarding it, not being run over. Kept above the speed the game counts as stopped at a station.")]
+        [SerializeField] private float boardingSpeed = 3f;
         [SerializeField] private float explosionCooldown = 0.75f;
         private BoxCollider hull;
         private Vector3 previousCentre;
+        private Vector3 previousHullPosition;
+        private Quaternion previousRotation;
+        private readonly Collider[] overlaps = new Collider[48];
         private float nextExplosion;
         private Material blastMaterial;
         private Material markMaterial;
         private TramAudio impactAudio;
         private TramController tram;
+        private TramGameManager game;
 
         private void Start()
         {
             hull = GetComponentInChildren<BoxCollider>();
             impactAudio = GetComponent<TramAudio>();
             tram = GetComponent<TramController>();
-            if (hull != null) previousCentre = hull.transform.TransformPoint(hull.center);
+            ResetSweep();
             blastMaterial = SparvagnRushBootstrap.CreateRuntimeMaterial(new Color(1f, 0.45f, 0.08f));
             markMaterial = SparvagnRushBootstrap.CreateRuntimeMaterial(new Color(0.12f, 0.10f, 0.09f));
         }
@@ -29,7 +35,10 @@ namespace SparvagnRush.Gameplay
         // Respawning teleports the tram and must not sweep through the entire city.
         public void ResetSweep()
         {
-            if (hull != null) previousCentre = hull.transform.TransformPoint(hull.center);
+            if (hull == null) return;
+            previousCentre = hull.transform.TransformPoint(hull.center);
+            previousHullPosition = hull.transform.position;
+            previousRotation = hull.transform.rotation;
         }
 
         private void LateUpdate()
@@ -45,21 +54,28 @@ namespace SparvagnRush.Gameplay
             float speed = distance / Mathf.Max(Time.deltaTime, 0.0001f);
             Physics.SyncTransforms();
 
-            if (distance > 0.001f)
+            int steps = Mathf.Clamp(Mathf.CeilToInt(Mathf.Max(distance / 0.6f,
+                Quaternion.Angle(previousRotation, rotation) / 5f)), 1, 16);
+            for (int step = 1; step <= steps; step++)
             {
-                foreach (RaycastHit hit in Physics.BoxCastAll(previousCentre, half, movement / distance,
-                    rotation, distance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide))
-                    Hit(hit.collider, hit.point, hit.normal, speed);
+                float t = step / (float)steps;
+                Quaternion sampleRotation = Quaternion.Slerp(previousRotation, rotation, t);
+                Vector3 sampleCentre = Vector3.Lerp(previousCentre, centre, t);
+                Vector3 samplePosition = Vector3.Lerp(previousHullPosition, hull.transform.position, t);
+                int count = Physics.OverlapBoxNonAlloc(sampleCentre, half, overlaps, sampleRotation,
+                    Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide);
+                for (int i = 0; i < count; i++)
+                {
+                    Collider other = overlaps[i];
+                    if (other.transform.IsChildOf(transform)) continue;
+                    // Test the actual tilted hull at each step, not a broad cast box.
+                    if (!Physics.ComputePenetration(hull, samplePosition, sampleRotation,
+                        other, other.transform.position, other.transform.rotation, out Vector3 normal, out float depth)) continue;
+                    Hit(other, other.ClosestPoint(sampleCentre), normal, speed);
+                }
             }
-            foreach (Collider other in Physics.OverlapBox(centre, half, rotation,
-                Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide))
-            {
-                if (other.transform.IsChildOf(transform)) continue;
-                if (!Physics.ComputePenetration(hull, hull.transform.position, rotation,
-                    other, other.transform.position, other.transform.rotation, out Vector3 normal, out float depth)) continue;
-                Vector3 point = hull.ClosestPoint(centre - normal * (half.magnitude + depth));
-                Hit(other, point, normal, speed);
-            }
+            previousHullPosition = hull.transform.position;
+            previousRotation = rotation;
             previousCentre = centre;
         }
 
@@ -69,10 +85,20 @@ namespace SparvagnRush.Gameplay
             AmbientNpcWalker pedestrian = other.GetComponentInParent<AmbientNpcWalker>();
             if (pedestrian != null)
             {
-                if (!pedestrian.gameObject.activeInHierarchy) return;
-                impactAudio?.PlayNpcHit();
-                pedestrian.gameObject.SetActive(false);
-                Destroy(pedestrian.gameObject);
+                if (!pedestrian.gameObject.activeInHierarchy || pedestrian.IsDown) return;
+                // A tram stopped or crawling at a station is being boarded, not
+                // driven into somebody. Passengers walk up to it and get on; only a
+                // tram with real speed behind it runs a person down.
+                if (tram == null || Mathf.Abs(tram.Speed) < boardingSpeed)
+                {
+                    pedestrian.Board();
+                    return;
+                }
+                pedestrian.KnockDown();
+                // The manager is added during the same Start phase as this component,
+                // so it is found on first use rather than cached in Start.
+                if (game == null) game = FindFirstObjectByType<TramGameManager>();
+                game?.EndByCollision(point);
                 return;
             }
             // While the tram is held to the rails, nearby building geometry can overlap

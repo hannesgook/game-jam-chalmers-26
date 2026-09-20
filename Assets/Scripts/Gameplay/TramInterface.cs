@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using SparvagnRush.Map;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
@@ -13,10 +14,16 @@ namespace SparvagnRush.Gameplay
         private static readonly Color TextColour = new(0.12f, 0.15f, 0.19f);
         private TramGameManager game;
         private CityOverview overview;
-        private RectTransform root, selection, instructions, hud, map, drivingHelp, status, notice, ending, intro, destinationBadge;
-        private Text selectedText, objective, directions, numbers, speed, notification, result, destinationText, mapCaption;
+        private RectTransform root, selection, instructions, hud, map, drivingHelp, notice, ending, intro, destinationBadge;
+        private Text selectedText, objective, directions, numbers, speed, notification, result, destinationText, mapCaption, focusText;
         private Image progress, balance;
-        private readonly List<Button> stationButtons = new();
+        private readonly List<Button> resultButtons = new();
+        private readonly List<CityPlace> searchResults = new();
+        private RectTransform searchContent, loadingScreen;
+        private InputField search;
+        private ScrollRect placeScroll;
+        private Text searchSummary, loadingText, introDescription;
+        private Button skipIntro;
         private readonly List<Button> pins = new();
         private readonly List<Rect> pinRects = new();
         private Font font;
@@ -46,72 +53,114 @@ namespace SparvagnRush.Gameplay
             root.pivot = new Vector2(0.5f, 0.5f);
             root.anchorMin = Vector2.zero; root.anchorMax = Vector2.one; root.offsetMin = root.offsetMax = Vector2.zero;
 
-            selection = Window("Choose a station", root, 20, 20, 280, 540);
+            // One column on the left holds everything the selector needs: name it,
+            // search it, pick it, start. Nothing else competes for the screen.
+            selection = Window("Choose a station", root, 20, 20, 300, 540);
             selection.anchorMin = new Vector2(0, 0); selection.anchorMax = new Vector2(0, 1);
-            selection.offsetMin = new Vector2(20, 100); selection.offsetMax = new Vector2(300, -20);
-            Label(selection, "Spårvagn Rush", 18, 16, 244, 32, 24, true);
-            Label(selection, "Choose your starting station", 18, 55, 244, 30, 16);
-            RectTransform viewport = Rect("Station list", selection, 12, 98, 256, 280);
+            selection.offsetMin = new Vector2(20, 104); selection.offsetMax = new Vector2(320, -20);
+            Label(selection, "Spårvagn Rush", 16, 14, 268, 34, 24, true);
+
+            var inputRect = Rect("Search places", selection, 16, 56, 268, 40);
+            inputRect.gameObject.AddComponent<Image>().color = new Color(0.94f, 0.96f, 0.98f);
+            search = inputRect.gameObject.AddComponent<InputField>();
+            Text entry = Label(inputRect, "", 12, 0, 244, 40, 16);
+            entry.alignment = TextAnchor.MiddleLeft;
+            entry.resizeTextForBestFit = false;
+            Text placeholder = Label(inputRect, "Search shops, places, stops…", 12, 0, 244, 40, 14);
+            placeholder.color = new Color(0.45f, 0.48f, 0.52f); placeholder.alignment = TextAnchor.MiddleLeft;
+            search.textComponent = entry; search.placeholder = placeholder;
+            search.lineType = InputField.LineType.SingleLine;
+            search.onValueChanged.AddListener(RefreshSearch);
+            searchSummary = Label(selection, "", 16, 100, 268, 20, 12);
+
+            RectTransform viewport = Rect("Place list", selection, 0, 0, 0, 0);
             viewport.anchorMin = Vector2.zero; viewport.anchorMax = Vector2.one;
-            viewport.offsetMin = new Vector2(12, 135); viewport.offsetMax = new Vector2(-12, -98);
+            viewport.offsetMin = new Vector2(12, 130); viewport.offsetMax = new Vector2(-12, -126);
             viewport.gameObject.AddComponent<RectMask2D>();
-            Image hitArea = viewport.gameObject.AddComponent<Image>(); hitArea.color = new Color(0.97f, 0.97f, 0.97f);
-            RectTransform content = Rect("Stations", viewport, 0, 0, 256, game.Stations.Count * 42);
+            viewport.gameObject.AddComponent<Image>().color = new Color(0.97f, 0.975f, 0.98f);
+            RectTransform content = Rect("Places", viewport, 0, 0, 276, 46);
+            searchContent = content;
             var scroll = viewport.gameObject.AddComponent<ScrollRect>();
+            placeScroll = scroll;
             scroll.viewport = viewport; scroll.content = content; scroll.horizontal = false;
             scroll.movementType = ScrollRect.MovementType.Clamped;
+            for (int i = 0; i < 40; i++) resultButtons.Add(Button(content, "", 0, i * 48, 272, 44, () => { }));
+            RefreshSearch("");
+
+            RectTransform departure = Rect("Departure", selection, 0, 0, 300, 120);
+            departure.anchorMin = departure.anchorMax = Vector2.zero; departure.pivot = Vector2.zero;
+            focusText = Label(departure, "", 16, 8, 268, 32, 13);
+            selectedText = Label(departure, "", 16, 42, 268, 26, 15, true);
+            Button(departure, "Start run", 16, 72, 268, 42, overview.Spawn);
+
             for (int i = 0; i < game.Stations.Count; i++)
             {
                 int index = i;
-                stationButtons.Add(Button(content, game.Stations[i].name, 0, i * 42, 252, 38, () => overview.SelectStop(index)));
-                Button pin = Button(root, game.Stations[i].name, 0, 0, 142, 34, () => overview.SelectStop(index));
+                Button pin = Button(root, game.Stations[i].name, 0, 0, 142, 32, () => overview.SelectStop(index));
                 ((RectTransform)pin.transform).anchorMin = ((RectTransform)pin.transform).anchorMax = new Vector2(0.5f, 0.5f);
                 ((RectTransform)pin.transform).pivot = new Vector2(0.5f, 0.5f);
                 pins.Add(pin);
             }
-            RectTransform departure = Rect("Departure", selection, 0, 0, 280, 122);
-            departure.anchorMin = departure.anchorMax = Vector2.zero; departure.pivot = Vector2.zero;
-            selectedText = Label(departure, "", 18, 8, 244, 34, 16, true);
-            Button(departure, "Start run", 18, 49, 244, 42, overview.Spawn);
-            Label(departure, "Enter to start", 18, 95, 244, 20, 12);
-            instructions = Window("Map controls", root, 20, 0, 640, 64);
-            Bottom(instructions, 20, 20);
-            Label(instructions, "Drag with the left mouse button to pan. A / D rotates. Scroll to zoom.\nHome resets the view. Select a station to take a closer look.", 14, 10, 612, 46, 14);
 
-            hud = Window("Your next stop", root, 20, 20, 350, 194);
-            objective = Label(hud, "", 16, 12, 318, 55, 23, true);
-            directions = Label(hud, "", 16, 74, 318, 57, 16);
-            numbers = Label(hud, "", 16, 139, 318, 40, 14);
-            var bar = Rect("Boarding progress", hud, 16, 184, 318, 4);
+            instructions = ControlBar("Map controls", 78);
+            ControlChips(instructions,
+                "Search", "Find shops and stops",
+                "Click", "Fly to a place",
+                "Drag", "Pan the map",
+                "Wheel", "Zoom",
+                "A / D", "Rotate",
+                "Enter", "Start run");
+
+            // Driving needs one panel, not three: what to do, how you are doing,
+            // and how close the tram is to going over.
+            hud = Window("Your run", root, 20, 20, 340, 210);
+            objective = Label(hud, "", 16, 12, 308, 50, 22, true);
+            directions = Label(hud, "", 16, 66, 308, 44, 15);
+            numbers = Label(hud, "", 16, 114, 308, 32, 13);
+            var bar = Rect("Boarding progress", hud, 16, 150, 308, 4);
             progress = bar.gameObject.AddComponent<Image>(); progress.color = Accent;
-            status = Window("Driving", root, 20, 0, 350, 64); Bottom(status, 20, 76);
-            speed = Label(status, "", 14, 10, 322, 25, 16);
-            var track = Rect("Balance track", status, 14, 45, 322, 3);
-            track.gameObject.AddComponent<Image>().color = new Color(0.8f, 0.82f, 0.85f);
-            balance = Rect("Balance", status, 170, 40, 8, 13).gameObject.AddComponent<Image>(); balance.color = Accent;
-            drivingHelp = Window("Controls", root, 20, 0, 640, 42); Bottom(drivingHelp, 20, 20);
-            Label(drivingHelp, "W / S drive    A / D balance and turn    RMB camera    Esc stations", 14, 10, 612, 24, 14);
+            speed = Label(hud, "", 16, 158, 308, 22, 14);
+            var track = Rect("Balance track", hud, 16, 186, 308, 3);
+            track.gameObject.AddComponent<Image>().color = new Color(0.82f, 0.84f, 0.87f);
+            balance = Rect("Balance", hud, 166, 182, 8, 13).gameObject.AddComponent<Image>(); balance.color = Accent;
 
-            map = Window("Minimap", root, 0, 20, 260, 322);
+            drivingHelp = ControlBar("Controls", 78);
+            ControlChips(drivingHelp,
+                "W / S", "Drive and brake",
+                "A / D", "Lean: steer and dodge",
+                "Space", "Honk",
+                "Wheel / RMB", "Camera",
+                "R", "Retry",
+                "Esc", "Back to map");
+
+            map = Window("Minimap", root, 0, 20, 230, 292);
             map.anchorMin = map.anchorMax = new Vector2(1, 1); map.pivot = new Vector2(1, 1); map.anchoredPosition = new Vector2(-20, -20);
-            var image = Rect("City view", map, 10, 10, 240, 240).gameObject.AddComponent<RawImage>();
+            var image = Rect("City view", map, 10, 10, 210, 210).gameObject.AddComponent<RawImage>();
             image.raycastTarget = false;
             image.gameObject.AddComponent<TramMinimapView>().Initialize(game);
-            Label(map, "N ↑", 17, 14, 34, 22, 14, true);
-            Label(map, "You", 114, 141, 45, 22, 13, true);
-            mapCaption = Label(map, "", 12, 260, 236, 55, 14);
-            notice = Window("Message", root, 0, 0, 400, 70); CentreBottom(notice, 156);
-            notification = Label(notice, "", 16, 12, 368, 48, 16);
-            ending = Window("Run complete", root, 0, 0, 430, 238); Centre(ending);
-            result = Label(ending, "", 22, 20, 386, 116, 22, true);
-            Button(ending, "Try again", 22, 161, 182, 44, game.Retry);
-            Button(ending, "Choose a station", 220, 161, 188, 44, overview.Open);
-            intro = Window("Welcome", root, 0, 0, 440, 164); CentreBottom(intro, 35);
-            Label(intro, "Spårvagn Rush", 22, 16, 396, 36, 28, true);
-            Label(intro, "Balance your tram. Follow the blue route.\nPick up passengers and complete three deliveries.", 22, 57, 396, 48, 16);
-            Button(intro, "Choose a station  ·  Skip intro", 22, 112, 396, 36, overview.SkipIntro);
-            destinationBadge = Window("Station marker", root, 0, 0, 180, 48); Centre(destinationBadge);
-            destinationText = Label(destinationBadge, "", 8, 5, 164, 38, 14, true);
+            Label(map, "N ↑", 16, 14, 34, 20, 13, true);
+            mapCaption = Label(map, "", 10, 226, 210, 56, 13);
+
+            notice = Window("Message", root, 0, 0, 400, 64); CentreBottom(notice, 106);
+            notification = Label(notice, "", 16, 10, 368, 44, 15);
+            ending = Window("Run complete", root, 0, 0, 420, 224); Centre(ending);
+            result = Label(ending, "", 20, 20, 380, 112, 21, true);
+            Button(ending, "Try again", 20, 152, 180, 44, game.Retry);
+            Button(ending, "Choose a station", 216, 152, 184, 44, overview.Open);
+
+            intro = Window("Welcome", root, 0, 0, 430, 158); CentreBottom(intro, 30);
+            Label(intro, "Spårvagn Rush", 20, 14, 390, 34, 26, true);
+            introDescription = Label(intro, "Balance the tram, follow the blue route, deliver three times.\nSpace honks and throws people clear of the rails.", 20, 54, 390, 46, 15);
+            skipIntro = Button(intro, "Choose a station  ·  Skip intro", 20, 106, 390, 36, overview.SkipIntro);
+
+            loadingScreen = Window("Loading city", root, 0, 0, 0, 0);
+            loadingScreen.anchorMin = Vector2.zero; loadingScreen.anchorMax = Vector2.one;
+            loadingScreen.offsetMin = loadingScreen.offsetMax = Vector2.zero;
+            RectTransform loadingCard = Rect("Loading message", loadingScreen, 0, 0, 430, 146); Centre(loadingCard);
+            Label(loadingCard, "Spårvagn Rush", 20, 12, 390, 38, 26, true);
+            loadingText = Label(loadingCard, "Preparing the city…", 20, 64, 390, 68, 16);
+            destinationBadge = Window("Station marker", root, 0, 0, 180, 46); Centre(destinationBadge);
+            destinationText = Label(destinationBadge, "", 8, 5, 164, 36, 14, true);
 
             routeLine = new GameObject("Follow this rail").AddComponent<LineRenderer>();
             routeLine.transform.SetParent(transform, false);
@@ -125,35 +174,48 @@ namespace SparvagnRush.Gameplay
         private void LateUpdate()
         {
             if (game == null) return;
-            Rect safe = Screen.safeArea;
-            root.anchorMin = new Vector2(safe.xMin / Screen.width, safe.yMin / Screen.height);
-            root.anchorMax = new Vector2(safe.xMax / Screen.width, safe.yMax / Screen.height);
+            // A minimised window reports a zero-sized screen, and dividing by it
+            // would push the whole interface off to NaN and never bring it back.
+            if (Screen.width > 0 && Screen.height > 0)
+            {
+                Rect safe = Screen.safeArea;
+                root.anchorMin = new Vector2(safe.xMin / Screen.width, safe.yMin / Screen.height);
+                root.anchorMax = new Vector2(safe.xMax / Screen.width, safe.yMax / Screen.height);
+            }
             bool starting = overview.IntroPlaying, selecting = game.ChoosingStop && !starting, driving = !game.ChoosingStop;
-            intro.gameObject.SetActive(starting);
+            intro.gameObject.SetActive(starting && !overview.Loading);
+            loadingScreen.gameObject.SetActive(overview.Loading);
+            loadingText.text = overview.LoadingMessage + "\nThe tour begins after startup work and frame timing settle.";
             selection.gameObject.SetActive(selecting); instructions.gameObject.SetActive(selecting);
-            hud.gameObject.SetActive(driving); status.gameObject.SetActive(driving); drivingHelp.gameObject.SetActive(driving);
-            map.gameObject.SetActive(driving);
-            ending.gameObject.SetActive(driving && game.Ended);
-            notice.gameObject.SetActive(driving && !game.Ended && game.Notice.Length > 0);
+            // The crash camera gets a clear screen until it has shown the impact.
+            bool crashShot = game.CinematicPlaying && !game.ShowResult;
+            bool onRoad = driving && !crashShot;
+            hud.gameObject.SetActive(onRoad); drivingHelp.gameObject.SetActive(onRoad);
+            map.gameObject.SetActive(onRoad);
+            ending.gameObject.SetActive(driving && game.ShowResult);
+            notice.gameObject.SetActive(onRoad && !game.Ended && game.Notice.Length > 0);
             destinationBadge.gameObject.SetActive(false);
-            routeLine.enabled = driving && !game.Ended && game.Destination != null;
+            routeLine.enabled = onRoad && !game.Ended && game.Destination != null;
             pinRects.Clear();
             for (int i = 0; i < pins.Count; i++)
             {
-                stationButtons[i].GetComponent<Image>().color = i == overview.Selected ? new Color(0.83f, 0.91f, 1f) : new Color(0.95f, 0.96f, 0.97f);
+
                 pins[i].gameObject.SetActive(false);
                 if (!selecting) continue;
                 Vector3 screen = overview.View.WorldToScreenPoint(game.Stations[i].position);
                 if (screen.z <= 0) continue;
                 RectTransformUtility.ScreenPointToLocalPointInRectangle(root, screen, null, out Vector2 local);
-                Rect r = new Rect(local.x - 71, local.y - 17, 142, 34);
+                Rect r = new Rect(local.x - 71, local.y - 16, 142, 32);
                 Rect limits = root.rect;
-                if (r.xMin < limits.xMin + 320 || r.xMax > limits.xMax - 16 || r.yMin < limits.yMin + 100 || r.yMax > limits.yMax - 16 || pinRects.Exists(other => other.Overlaps(r))) continue;
+                if (r.xMin < limits.xMin + 340 || r.xMax > limits.xMax - 16 || r.yMin < limits.yMin + 110 || r.yMax > limits.yMax - 16 || pinRects.Exists(other => other.Overlaps(r))) continue;
                 pinRects.Add(r);
                 pins[i].gameObject.SetActive(true);
                 ((RectTransform)pins[i].transform).anchoredPosition = local;
             }
-            selectedText.text = game.Stations[overview.Selected].name;
+            selectedText.text = "Start at " + game.Stations[overview.Selected].name;
+            if (overview.FocusedPlaceName == null) focusText.text = "Search a shop or pick a stop to fly there.";
+            else if (overview.FocusedPlaceKind == "Tram station") focusText.text = "Showing " + overview.FocusedPlaceName + ".";
+            else focusText.text = $"Showing {overview.FocusedPlaceName} ({overview.FocusedPlaceKind}).\nNearest stop is {overview.FocusedPlaceWalk:0} m away.";
             if (!driving) return;
             notification.text = game.Notice;
             objective.text = game.Destination == null ? "Finding passengers…" : (game.Carrying ? "Drop off at\n" : "Pick up at\n") + game.Destination.name;
@@ -167,13 +229,13 @@ namespace SparvagnRush.Gameplay
             directions.text = game.BoardingProgress > 0 ? (game.Carrying ? "Passengers getting off…" : "Passengers boarding…") :
                 $"{turn}  ·  {game.RemainingDistance:0} m\nSlow below 9 km/h inside the station ring.";
             numbers.text = $"{game.Delivered}/3 deliveries   ·   Score {game.Score}\n{game.SessionTime:0}s remaining   ·   Station {game.JobTime:0}s";
-            progress.rectTransform.sizeDelta = new Vector2(318 * game.BoardingProgress, 4);
+            progress.rectTransform.sizeDelta = new Vector2(308 * game.BoardingProgress, 4);
             speed.text = $"{Mathf.Abs(game.Player.Speed) * 3.6f:0} km/h    ·    {(game.Player.TravelSign < 0 ? "Reverse" : "Forward")}    ·    Balance";
             float lean = TramController.TravelRelativeLean(game.Player.LeanAngle, game.Player.TravelSign) / game.Player.FallAngle;
-            balance.rectTransform.anchoredPosition = new Vector2(171 + Mathf.Clamp(lean, -1, 1) * 153, -40);
+            balance.rectTransform.anchoredPosition = new Vector2(166 + Mathf.Clamp(lean, -1, 1) * 150, -182);
             balance.color = Mathf.Abs(lean) > 0.7f ? new Color(0.88f, 0.24f, 0.16f) : Accent;
             mapCaption.text = game.Destination == null ? "Blue marker: your tram" : $"{game.Destination.name}  ·  {game.RemainingDistance:0} m\nOrange arrow: follow this direction";
-            result.text = $"{(game.Delivered >= 3 ? "Route complete!" : game.Derailed ? "Tram derailed" : "Time is up")}\n\n{game.Delivered} deliveries   ·   Score {game.Score}";
+            result.text = $"{(game.Delivered >= 3 ? "Route complete!" : game.HitPedestrian ? "You hit a pedestrian" : game.Derailed ? "Tram derailed" : "Time is up")}\n\n{game.Delivered} deliveries   ·   Score {game.Score}";
             if (routeLine.enabled)
             {
                 int count = Mathf.Min(game.Route.Count, 80);
@@ -181,7 +243,7 @@ namespace SparvagnRush.Gameplay
                 for (int i = 0; i < count; i++) routeLine.SetPosition(i, game.Route[i] + Vector3.up * 0.65f);
                 Vector3 screen = overview.View.WorldToScreenPoint(game.Destination.position + Vector3.up * 8);
                 RectTransformUtility.ScreenPointToLocalPointInRectangle(root, screen, null, out Vector2 local);
-                if (screen.z > 0 && local.x > root.rect.xMin + 380 && local.x < root.rect.xMax - 290 && Mathf.Abs(local.y) < root.rect.height * 0.5f - 90)
+                if (screen.z > 0 && local.x > root.rect.xMin + 380 && local.x < root.rect.xMax - 270 && Mathf.Abs(local.y) < root.rect.height * 0.5f - 90)
                 {
                     destinationBadge.gameObject.SetActive(true);
                     destinationBadge.anchoredPosition = local;
@@ -190,12 +252,89 @@ namespace SparvagnRush.Gameplay
             }
         }
 
+        private void RefreshSearch(string query)
+        {
+            searchResults.Clear();
+            bool empty = string.IsNullOrWhiteSpace(query);
+            int matches = 0;
+            foreach (CityPlace place in overview.Places)
+            {
+                if (empty ? place.stationIndex < 0 : !CityPlace.Matches(place.name, query)) continue;
+                matches++;
+                if (searchResults.Count < resultButtons.Count) searchResults.Add(place);
+            }
+            for (int i = 0; i < resultButtons.Count; i++)
+            {
+                Button button = resultButtons[i];
+                button.gameObject.SetActive(i < searchResults.Count);
+                button.onClick.RemoveAllListeners();
+                if (i >= searchResults.Count) continue;
+                CityPlace place = searchResults[i];
+                button.GetComponentInChildren<Text>().text = place.name + "\n" + place.kind;
+                button.onClick.AddListener(() => overview.FocusPlace(place));
+            }
+            searchContent.sizeDelta = new Vector2(276, Mathf.Max(46, searchResults.Count * 48));
+            placeScroll.StopMovement();
+            searchContent.anchoredPosition = Vector2.zero;
+            searchSummary.text = matches == 0 ? "No places found. Try another name." : empty ? "Tram stations · search to find other places" :
+                matches > resultButtons.Count ? $"Showing {resultButtons.Count} of {matches}. Refine your search." : $"{matches} places found";
+        }
         private RectTransform Rect(string name, Transform parent, float x, float y, float width, float height)
         {
             var go = new GameObject(name, typeof(RectTransform)); go.transform.SetParent(parent, false);
             var rect = (RectTransform)go.transform; rect.anchorMin = rect.anchorMax = new Vector2(0, 1); rect.pivot = new Vector2(0, 1);
             rect.anchoredPosition = new Vector2(x, -y); rect.sizeDelta = new Vector2(width, height); return rect;
         }
+        /// <summary>A full-width strip along the bottom edge that spells out the controls.</summary>
+        private RectTransform ControlBar(string name, float height)
+        {
+            RectTransform bar = Window(name, root, 0, 0, 0, height);
+            bar.anchorMin = new Vector2(0, 0); bar.anchorMax = new Vector2(1, 0);
+            bar.pivot = new Vector2(0.5f, 0);
+            bar.offsetMin = new Vector2(20, 16);
+            bar.offsetMax = new Vector2(-20, 16 + height);
+            return bar;
+        }
+
+        /// <summary>Key/action pairs, spread evenly so the strip fits any window width.</summary>
+        private void ControlChips(RectTransform bar, params string[] pairs)
+        {
+            int count = pairs.Length / 2;
+            for (int i = 0; i < count; i++)
+            {
+                RectTransform cell = Rect(pairs[i * 2], bar, 0, 0, 0, 0);
+                cell.pivot = new Vector2(0.5f, 0.5f);
+                cell.anchorMin = new Vector2(i / (float)count, 0);
+                cell.anchorMax = new Vector2((i + 1) / (float)count, 1);
+                cell.offsetMin = new Vector2(6, 8); cell.offsetMax = new Vector2(-6, -8);
+
+                RectTransform plate = Rect("Key", cell, 0, 0, 0, 0);
+                plate.pivot = new Vector2(0.5f, 0.5f);
+                plate.anchorMin = new Vector2(0, 0.52f); plate.anchorMax = Vector2.one;
+                plate.offsetMin = plate.offsetMax = Vector2.zero;
+                plate.gameObject.AddComponent<Image>().color = Accent;
+                Text key = Label(plate, pairs[i * 2], 0, 0, 0, 0, 15, true);
+                Stretch((RectTransform)key.transform, 6, 2);
+                key.alignment = TextAnchor.MiddleCenter;
+                key.color = Color.white;
+
+                Text action = Label(cell, pairs[i * 2 + 1], 0, 0, 0, 0, 12);
+                RectTransform actionRect = (RectTransform)action.transform;
+                actionRect.pivot = new Vector2(0.5f, 0.5f);
+                actionRect.anchorMin = Vector2.zero; actionRect.anchorMax = new Vector2(1, 0.48f);
+                actionRect.offsetMin = new Vector2(2, 0); actionRect.offsetMax = new Vector2(-2, 0);
+                action.alignment = TextAnchor.MiddleCenter;
+                action.color = new Color(0.33f, 0.36f, 0.41f);
+            }
+        }
+
+        private static void Stretch(RectTransform rect, float padX, float padY)
+        {
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one;
+            rect.offsetMin = new Vector2(padX, padY); rect.offsetMax = new Vector2(-padX, -padY);
+        }
+
         private RectTransform Window(string name, Transform parent, float x, float y, float width, float height)
         {
             var rect = Rect(name, parent, x, y, width, height);
@@ -208,7 +347,9 @@ namespace SparvagnRush.Gameplay
             var label = Rect("Text", parent, x, y, width, height).gameObject.AddComponent<Text>();
             label.font = font; label.fontSize = size; label.fontStyle = bold ? FontStyle.Bold : FontStyle.Normal;
             label.text = text; label.color = TextColour; label.raycastTarget = false;
-            label.resizeTextForBestFit = true; label.resizeTextMinSize = Mathf.Min(12, size); label.resizeTextMaxSize = size;
+            // Text always gives way before the layout does, so nothing is ever cut
+            // off on a small window however narrow the box it has to live in.
+            label.resizeTextForBestFit = true; label.resizeTextMinSize = Mathf.Min(9, size); label.resizeTextMaxSize = size;
             label.horizontalOverflow = HorizontalWrapMode.Wrap; label.verticalOverflow = VerticalWrapMode.Truncate;
             return label;
         }

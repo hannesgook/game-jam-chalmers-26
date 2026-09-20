@@ -6,6 +6,7 @@ namespace SparvagnRush.Map
     public sealed class MapLabel : MonoBehaviour
     {
         public enum LabelStyle { Building, Shop, Stop, Place }
+        public LabelStyle Style => style;
 
         [SerializeField] private float maximumDistance = 190f;
         [SerializeField] private float minimumScale = 0.8f;

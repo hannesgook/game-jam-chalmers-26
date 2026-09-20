@@ -9,6 +9,7 @@ namespace SparvagnRush.Gameplay
     [DisallowMultipleComponent]
     public sealed class SparvagnRushBootstrap : MonoBehaviour
     {
+        public bool StartupReady { get; private set; }
         [SerializeField] private TramTrackNetwork network;
 
         public void SetNetwork(TramTrackNetwork trackNetwork) => network = trackNetwork;
@@ -66,6 +67,7 @@ namespace SparvagnRush.Gameplay
             tram.Initialize(network, requestedStart);
             tramObject.AddComponent<TramAudio>().Initialize(tram);
             tramObject.AddComponent<TramImpactEffects>();
+            tramObject.AddComponent<TramHorn>();
 
             Camera camera = Camera.main;
             if (camera == null)
@@ -93,6 +95,7 @@ namespace SparvagnRush.Gameplay
 
             AmbientNpcManager pedestrians = gameObject.AddComponent<AmbientNpcManager>();
             pedestrians.Initialize(network, tram.transform);
+            StartCoroutine(FinishStartup(pedestrians));
 
 #if DEVELOPMENT_BUILD || UNITY_EDITOR
             if (Array.Exists(Environment.GetCommandLineArgs(), argument => argument == "-captureSmoke"))
@@ -104,6 +107,15 @@ namespace SparvagnRush.Gameplay
         {
             Shader shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
             return new Material(shader) { color = color };
+        }
+
+        private IEnumerator FinishStartup(AmbientNpcManager pedestrians)
+        {
+            while (!pedestrians.Ready) yield return null;
+            // Let deferred label mounting, destruction, and the first render complete.
+            yield return null;
+            yield return new WaitForEndOfFrame();
+            StartupReady = true;
         }
 
         private static void ConfigureEnvironment()

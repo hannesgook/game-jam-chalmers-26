@@ -29,6 +29,11 @@ namespace SparvagnRush.Gameplay
         public bool IntroPlaying => intro != null && intro.Playing;
         public int Selected => selected;
         public Camera View => view;
+        public bool Loading => intro != null && intro.Loading;
+        public string LoadingMessage => intro != null ? intro.LoadingMessage : "Preparing city…";
+        public readonly List<CityPlace> Places = new();
+        public string FocusedPlaceName { get; private set; }
+        public string FocusedPlaceKind { get; private set; }
         public void SkipIntro() { if (intro != null) intro.Skip(); }
 
         public void Initialize(Camera camera, TramGameManager game, TramTrackNetwork network, Transform city)
@@ -39,6 +44,19 @@ namespace SparvagnRush.Gameplay
             bounds = new Bounds(network.Graph[0].position, Vector3.zero);
             foreach (var node in network.Graph) bounds.Encapsulate(node.position);
             stops = manager.Stations;
+            for (int i = 0; i < stops.Count; i++)
+                Places.Add(new CityPlace { name = stops[i].name, kind = "Tram station", position = stops[i].position, stationIndex = i });
+            var seen = new HashSet<string>();
+            foreach (MapLabel label in city.GetComponentsInChildren<MapLabel>())
+            {
+                if (label.Style == MapLabel.LabelStyle.Stop) continue;
+                TextMesh text = label.GetComponent<TextMesh>();
+                if (text == null || string.IsNullOrWhiteSpace(text.text)) continue;
+                string key = text.text + ":" + Mathf.RoundToInt(label.transform.position.x / 8) + ":" + Mathf.RoundToInt(label.transform.position.z / 8);
+                if (!seen.Add(key)) continue;
+                Places.Add(new CityPlace { name = text.text, position = label.transform.position,
+                    kind = label.Style == MapLabel.LabelStyle.Shop ? "Shop" : label.Style == MapLabel.LabelStyle.Building ? "Building" : "Place" });
+            }
             float closest = float.MaxValue;
             for (int i = 0; i < stops.Count; i++)
             {
@@ -100,7 +118,8 @@ namespace SparvagnRush.Gameplay
                     wantedFocus = focus;
                 }
             }
-            if (keys != null)
+            var input = UnityEngine.EventSystems.EventSystem.current?.currentSelectedGameObject?.GetComponent<UnityEngine.UI.InputField>();
+            if (keys != null && (input == null || !input.isFocused))
             {
                 float rotate = (keys.dKey.isPressed ? 1f : 0f) - (keys.aKey.isPressed ? 1f : 0f);
                 if (rotate != 0) { touring = false; yaw += rotate * 40f * Time.unscaledDeltaTime; }
@@ -126,10 +145,45 @@ namespace SparvagnRush.Gameplay
         public void SelectStop(int index)
         {
             selected = index;
+            FocusedPlaceName = stops[index].name;
+            FocusedPlaceKind = "Tram station";
             wantedFocus = stops[index].position;
             desiredHeight = Mathf.Max(105f, wantedFocus.y + 95f);
             touring = true;
             dragging = false;
+        }
+
+        public void FocusPlace(CityPlace place)
+        {
+            if (place.stationIndex >= 0) { SelectStop(place.stationIndex); return; }
+            FocusedPlaceName = place.name;
+            FocusedPlaceKind = place.kind;
+            // Start run always departs from a station, so searching for a shop also
+            // arms the nearest one. Otherwise flying to a place leaves the button
+            // pointing at wherever the camera happened to be beforehand.
+            selected = NearestStop(place.position);
+            wantedFocus = place.position;
+            desiredHeight = Mathf.Max(105f, wantedFocus.y + 95f);
+            touring = true;
+            dragging = false;
+        }
+
+        /// <summary>Distance to the nearest station, in metres, from the focused place.</summary>
+        public float FocusedPlaceWalk => FocusedPlaceName == null ? 0f
+            : Vector3.Distance(wantedFocus, stops[selected].position);
+
+        private int NearestStop(Vector3 position)
+        {
+            int best = selected;
+            float closest = float.MaxValue;
+            for (int i = 0; i < stops.Count; i++)
+            {
+                float distance = (stops[i].position - position).sqrMagnitude;
+                if (distance >= closest) continue;
+                closest = distance;
+                best = i;
+            }
+            return best;
         }
 
         public void Spawn()
