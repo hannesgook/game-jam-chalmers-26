@@ -106,6 +106,11 @@ namespace SparvagnRush.Editor
                 AppendString(json, name);
                 json.Append(",\"kind\":");
                 AppendString(json, kind);
+                if (TryString(tags, "brand:colour", out string brandColour) || TryString(tags, "colour", out brandColour))
+                {
+                    json.Append(",\"sign_colour\":");
+                    AppendString(json, brandColour);
+                }
                 json.Append("},\"geometry\":{\"type\":\"Point\",\"coordinates\":[")
                     .Append(Deg(lon)).Append(',').Append(Deg(lat)).Append("]}}");
             }
@@ -165,8 +170,10 @@ namespace SparvagnRush.Editor
                 {
                     bool shop = PropertyEquals(properties, "kind", "shop");
                     position = SnapToBuildingEdge(position, buildingOutlines, 32f);
-                    CreateWorldLabel(detailsRoot.transform, position, name, Color.white, 145f,
+                    MapLabel label = CreateWorldLabel(detailsRoot.transform, position, name, Color.white, 145f,
                         shop ? MapLabel.LabelStyle.Shop : MapLabel.LabelStyle.Place);
+                    if (TryString(properties, "sign_colour", out string signColour) && ColorUtility.TryParseHtmlString(signColour, out Color tint))
+                        label.SetSignColour(tint);
                 }
                 count++;
             }
@@ -342,7 +349,7 @@ namespace SparvagnRush.Editor
                 MapLabel.LabelStyle.Stop, true);
         }
 
-        private static void CreateWorldLabel(Transform parent, Vector3 position, string text, Color color, float range,
+        private static MapLabel CreateWorldLabel(Transform parent, Vector3 position, string text, Color color, float range,
             MapLabel.LabelStyle style, bool local = false)
         {
             var labelObject = new GameObject("Label — " + text);
@@ -360,6 +367,7 @@ namespace SparvagnRush.Editor
             var serialized = new SerializedObject(billboard);
             serialized.FindProperty("maximumDistance").floatValue = range;
             serialized.ApplyModifiedPropertiesWithoutUndo();
+            return billboard;
         }
     }
 }

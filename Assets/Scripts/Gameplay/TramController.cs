@@ -422,6 +422,12 @@ namespace SparvagnRush.Gameplay
             return float.IsNegativeInfinity(highest) ? derailFloor : highest;
         }
 
+        public void RespawnAt(Vector3 position)
+        {
+            startRequest = position;
+            Respawn();
+        }
+
         public void Respawn()
         {
             if (TryGetComponent(out Rigidbody body))

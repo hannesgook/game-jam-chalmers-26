@@ -83,9 +83,11 @@ namespace SparvagnRush.Gameplay
             camera.gameObject.AddComponent<TramFollowCamera>().SetTarget(tram.transform);
 
             ConfigureEnvironment();
+            gameObject.AddComponent<CityPresentation>().Initialize(network, camera);
 
             TramGameManager manager = gameObject.AddComponent<TramGameManager>();
             manager.Initialize(network, tram);
+            gameObject.AddComponent<CityOverview>().Initialize(camera, manager, network, transform);
 
             AmbientNpcManager pedestrians = gameObject.AddComponent<AmbientNpcManager>();
             pedestrians.Initialize(network, tram.transform);
@@ -110,8 +112,8 @@ namespace SparvagnRush.Gameplay
             RenderSettings.ambientGroundColor = new Color(0.19f, 0.20f, 0.18f);
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
-            RenderSettings.fogColor = new Color(0.63f, 0.72f, 0.78f);
-            RenderSettings.fogDensity = 0.00075f;
+            RenderSettings.fogColor = new Color(0.57f, 0.65f, 0.70f);
+            RenderSettings.fogDensity = 0.00045f;
 
             Light sun = FindFirstObjectByType<Light>();
             if (sun == null)
@@ -120,10 +122,10 @@ namespace SparvagnRush.Gameplay
                 sun = sunObject.AddComponent<Light>();
             }
             sun.type = LightType.Directional;
-            sun.color = new Color(1f, 0.93f, 0.82f);
-            sun.intensity = 1.15f;
+            sun.color = new Color(1f, 0.86f, 0.69f);
+            sun.intensity = 1.35f;
             sun.shadows = LightShadows.Soft;
-            sun.transform.rotation = Quaternion.Euler(42f, -28f, 0f);
+            sun.transform.rotation = Quaternion.Euler(32f, -38f, 0f);
         }
 
         // Older generated scenes have valid ground UVs but no image assigned. Give those

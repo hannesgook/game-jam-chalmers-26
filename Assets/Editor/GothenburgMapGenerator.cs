@@ -170,6 +170,7 @@ namespace SparvagnRush.Editor
                 if (points.Count < 2) return;
 
                 int start = Vertices.Count;
+                float along = 0f;
                 for (int i = 0; i < points.Count; i++)
                 {
                     Vector3 incoming = i > 0 ? Flatten(points[i] - points[i - 1]) : Vector3.zero;
@@ -180,7 +181,7 @@ namespace SparvagnRush.Editor
                     Vector3 side = MitredOffset(incoming.normalized, outgoing.normalized, halfWidth);
                     Vertices.Add(points[i] - side);
                     Vertices.Add(points[i] + side);
-                    float along = i == 0 ? 0f : Vector3.Distance(points[0], points[i]);
+                    if (i > 0) along += Vector3.Distance(points[i - 1], points[i]);
                     UVs.Add(new Vector2(0f, along * 0.1f));
                     UVs.Add(new Vector2(1f, along * 0.1f));
                 }
@@ -365,7 +366,10 @@ namespace SparvagnRush.Editor
                     for (int i = 0; i < clippedLines.Count; i++) clippedLines[i] = Densify(clippedLines[i]);
                     if (isRoad)
                     {
-                        foreach (List<GeoPoint> clipped in clippedLines) roadMesh.AddRibbon(clipped, 2.2f, 0.12f);
+                        float roadWidth = PropertyEquals(properties, "highway", "footway") ||
+                            PropertyEquals(properties, "highway", "path") || PropertyEquals(properties, "highway", "steps")
+                            ? 2.2f : PropertyEquals(properties, "highway", "service") ? 3.6f : 6f;
+                        foreach (List<GeoPoint> clipped in clippedLines) roadMesh.AddRibbon(clipped, roadWidth, 0.12f);
                         roadFeatures++;
                     }
                     if (isTram)
@@ -373,7 +377,7 @@ namespace SparvagnRush.Editor
                         string osmId = TryString(properties, "@id", out string id) ? id : "tram";
                         foreach (List<GeoPoint> clipped in clippedLines)
                         {
-                            tramMesh.AddRibbon(clipped, 3.4f, 0.28f);
+                            tramMesh.AddRibbon(clipped, 0.34f, 0.51f);
                             var points = new Vector3[clipped.Count];
                             for (int i = 0; i < clipped.Count; i++) points[i] = Project(clipped[i], 0.28f);
                             trackPaths.Add(new TramTrackNetwork.TrackPath { osmId = osmId, points = points });
@@ -399,7 +403,7 @@ namespace SparvagnRush.Editor
             // both are lit, because an unlit extrusion is a silhouette with no corners.
             CreateLayer(generatedRoot.transform, "Buildings", buildingMesh.Build("BuildingMesh"), CreateFacadeMaterial(), true);
             CreateLayer(generatedRoot.transform, "BuildingRoofs", roofMesh.Build("BuildingRoofMesh"), CreateRoofMaterial(), true);
-            GameObject tracks = CreateLayer(generatedRoot.transform, "TramTracks", tramMesh.Build("TramTrackMesh"), CreateMaterial("TramTracks", new Color(0.96f, 0.72f, 0.12f)));
+            GameObject tracks = CreateLayer(generatedRoot.transform, "TramTracks", tramMesh.Build("TramTrackMesh"), CreateMaterial("TramTracks", new Color(0.55f, 0.63f, 0.66f), true));
             TramTrackNetwork network = tracks.AddComponent<TramTrackNetwork>();
             network.ReplacePaths(trackPaths);
             generatedRoot.AddComponent<SparvagnRushBootstrap>().SetNetwork(network);

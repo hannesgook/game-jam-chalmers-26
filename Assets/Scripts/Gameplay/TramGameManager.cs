@@ -24,8 +24,24 @@ namespace SparvagnRush.Gameplay
         private bool derailed;
         private int score;
         private int combo;
-        private float titleCardTime;
         private Texture2D minimapTexture;
+        public bool ChoosingStop { get; private set; }
+
+        public void ShowCity()
+        {
+            ChoosingStop = true;
+            tram.Respawn();
+            tram.gameObject.SetActive(false);
+            if (marker != null) marker.SetActive(false);
+        }
+
+        public void StartAt(Vector3 position)
+        {
+            tram.gameObject.SetActive(true);
+            tram.RespawnAt(position);
+            ChoosingStop = false;
+            BeginSession();
+        }
 
         // These are the projected half-extents of the OSM download used by the city
         // generator (57.695,11.965 to 57.710,11.985). World X points east and Z north.
@@ -38,13 +54,12 @@ namespace SparvagnRush.Gameplay
             tram = player;
             tramAudio = player.GetComponent<TramAudio>();
             minimapTexture = Resources.Load<Texture2D>("Minimap/osm_minimap");
-            BeginSession();
+            ShowCity();
         }
 
         private void Update()
         {
-            if (network == null || tram == null) return;
-            titleCardTime = Mathf.Max(0f, titleCardTime - Time.deltaTime);
+            if (network == null || tram == null || ChoosingStop) return;
             if (!sessionEnded && tram.Derailed)
             {
                 sessionEnded = true;
@@ -113,9 +128,9 @@ namespace SparvagnRush.Gameplay
             carryingPassenger = false;
             sessionEnded = false;
             nextPassengerDelay = 0.5f;
-            titleCardTime = 3.5f;
             derailed = false;
             tram.Respawn();
+            Camera.main?.GetComponent<TramFollowCamera>()?.ResetFraming();
             if (marker != null) marker.SetActive(false);
         }
 
@@ -166,59 +181,65 @@ namespace SparvagnRush.Gameplay
             jobTime = JobDuration;
         }
 
+        private GUIStyle hudStyle, captionStyle, endStyle;
+        private float hudScreenHeight;
+
         private void OnGUI()
         {
-            GUIStyle hud = new(GUI.skin.box)
+            if (ChoosingStop || tram == null) return;
+            using var ui = new GameUi.Scope(true);
+            if (hudStyle == null || hudScreenHeight != GameUi.Height)
             {
-                fontSize = Mathf.RoundToInt(Screen.height * 0.027f),
-                alignment = TextAnchor.MiddleLeft,
-                normal = { textColor = Color.white }
-            };
-            string objective = carryingPassenger ? "DROP OFF — cyan beacon" : "PICK UP — yellow beacon";
-            GUI.Box(new Rect(18, 18, 430, 126), $"SPÅRVAGN RUSH\nScore  {score:00000}    Combo  x{Mathf.Max(1, combo)}\nTime  {Mathf.CeilToInt(sessionTime):00}s    Job  {Mathf.CeilToInt(jobTime):00}s\n{objective}", hud);
-            GUI.Label(new Rect(20, Screen.height - 42, 900, 28), "W/S: drive   A/D: lean — the way you are leaning chooses the junction   RMB drag: orbit", hud);
-
-            DrawMinimap(hud);
-
-            if (!sessionEnded)
-            {
-                // Leaning is unreadable without seeing how much edge is left.
-                var meter = new Rect(18, 152, 430, 30);
-                float lean01 = Mathf.Clamp(tram.LeanAngle / Mathf.Max(1f, tram.FallAngle), -1f, 1f);
-                GUI.Box(meter, GUIContent.none, hud);
-                float centre = meter.x + meter.width * 0.5f;
-                GUI.Box(new Rect(centre + lean01 * (meter.width * 0.5f - 14f) - 11f, meter.y + 4f, 22f, 22f), GUIContent.none, hud);
-                GUI.Label(new Rect(meter.x + 8f, meter.y + 4f, 260f, 22f), $"LEAN {tram.LeanAngle,4:0}°", hud);
-            }
-
-            if (titleCardTime > 0f)
-            {
-                GUIStyle title = new(GUI.skin.box)
+                hudScreenHeight = GameUi.Height;
+                hudStyle = new GUIStyle(GUI.skin.label)
                 {
-                    fontSize = Mathf.RoundToInt(Screen.height * 0.045f),
-                    alignment = TextAnchor.MiddleCenter,
+                    fontSize = 19,
+                    fontStyle = FontStyle.Bold,
                     normal = { textColor = Color.white }
                 };
-                GUI.Box(new Rect(Screen.width * 0.25f, 24f, Screen.width * 0.5f, 164f),
-                    "SPÅRVAGN RUSH\nMap data © OpenStreetMap contributors\nAerial imagery: Göteborgs Stad, 2025 (CC0)\nElevation: Göteborgs Stad, 2022 (CC0)", title);
+                captionStyle = new GUIStyle(hudStyle) { fontSize = 12, fontStyle = FontStyle.Normal, wordWrap = true };
+                endStyle = new GUIStyle(hudStyle) { fontSize = 28, alignment = TextAnchor.MiddleCenter, wordWrap = true };
             }
+            float width = Mathf.Min(350f, GameUi.Width * 0.44f);
+            Panel(new Rect(18, 18, width, 146));
+            GUI.Label(new Rect(32, 28, width - 28, 30), "SPÅRVAGN RUSH", hudStyle);
+            GUI.Label(new Rect(32, 63, width - 28, 30), $"{score:00000}    /    COMBO ×{Mathf.Max(1, combo)}", hudStyle);
+            GUI.Label(new Rect(32, 100, width - 28, 24), $"RUN  {Mathf.CeilToInt(sessionTime):00}s     JOB  {Mathf.CeilToInt(jobTime):00}s", captionStyle);
+            GUI.Label(new Rect(32, 126, width - 28, 28), carryingPassenger ? "DROP OFF  /  cyan beacon" : "PICK UP  /  gold beacon", captionStyle);
+
+            DrawMinimap(hudStyle);
+            var meter = new Rect(18, GameUi.Height - 103, width, 48);
+            Panel(meter);
+            GUI.Label(new Rect(meter.x + 12, meter.y + 4, width - 24, 22),
+                $"BALANCE  {tram.LeanAngle:0}°       SPEED  {Mathf.Abs(tram.Speed) * 3.6f:0} km/h", captionStyle);
+            Color old = GUI.color;
+            GUI.color = new Color(0.25f, 0.32f, 0.37f);
+            GUI.DrawTexture(new Rect(meter.x + 14, meter.y + 32, width - 28, 3), Texture2D.whiteTexture);
+            float lean = Mathf.Clamp(tram.LeanAngle / Mathf.Max(1f, tram.FallAngle), -1f, 1f);
+            GUI.color = Mathf.Abs(lean) > 0.7f ? new Color(1f, 0.42f, 0.25f) : GameUi.Accent;
+            GUI.DrawTexture(new Rect(meter.center.x + lean * (width * 0.5f - 22) - 4, meter.y + 27, 8, 13), Texture2D.whiteTexture);
+            GUI.color = old;
+            GUI.Label(new Rect(20, GameUi.Height - 43, GameUi.Width - 40, 38),
+                "W/S drive   ·   A/D balance & junctions   ·   RMB orbit   ·   Wheel zoom   ·   MMB reset   ·   Esc city", captionStyle);
 
             if (!sessionEnded) return;
-            GUIStyle end = new(GUI.skin.box)
-            {
-                fontSize = Mathf.RoundToInt(Screen.height * 0.05f),
-                alignment = TextAnchor.MiddleCenter,
-                normal = { textColor = Color.white }
-            };
-            GUI.Box(new Rect(Screen.width * 0.25f, Screen.height * 0.3f, Screen.width * 0.5f, Screen.height * 0.34f),
-                $"{(derailed ? "DERAILED!" : "TIME'S UP!")}\n\nSCORE  {score}\n\nPress R to rush again", end);
+            Rect end = new Rect(GameUi.Width * 0.25f, GameUi.Height * 0.28f, GameUi.Width * 0.5f, GameUi.Height * 0.40f);
+            Panel(end);
+            GUI.Label(end, $"{(derailed ? "DERAILED" : "TIME'S UP")}\n\nSCORE  {score}\n\nR to retry  ·  Esc to choose a stop", endStyle);
         }
 
+        private static void Panel(Rect rect)
+        {
+            Color old = GUI.color;
+            GUI.color = GameUi.Ink;
+            GUI.DrawTexture(rect, Texture2D.whiteTexture);
+            GUI.color = old;
+        }
         private void DrawMinimap(GUIStyle hud)
         {
-            float size = Mathf.Clamp(Screen.height * 0.31f, 190f, 310f);
-            var frame = new Rect(Screen.width - size - 18f, 18f, size, size);
-            GUI.Box(new Rect(frame.x - 5f, frame.y - 5f, frame.width + 10f, frame.height + 32f), GUIContent.none, hud);
+            float size = Mathf.Min(240f, GameUi.Width * 0.28f, GameUi.Height - 210f);
+            var frame = new Rect(GameUi.Width - size - 18f, 18f, size, size);
+            Panel(new Rect(frame.x - 5f, frame.y - 5f, frame.width + 10f, frame.height + 32f));
 
             if (minimapTexture != null)
                 GUI.DrawTexture(frame, minimapTexture, ScaleMode.StretchToFill, false);

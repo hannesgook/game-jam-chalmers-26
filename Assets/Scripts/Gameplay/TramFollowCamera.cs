@@ -11,7 +11,9 @@ namespace SparvagnRush.Gameplay
         private TramController tram;
         private Camera cameraComponent;
         private Vector3 velocity;
-        public Vector3 offset = new(0f, 42f, -34f);
+        public Vector3 offset = new(0f, 19f, -29f);
+        private readonly RaycastHit[] sceneryHits = new RaycastHit[64];
+        private float arrivalTime;
 
         [Header("Framing")]
         [Tooltip("How far ahead of the tram the camera looks. This makes corners visible before the tram enters them.")]
@@ -55,6 +57,17 @@ namespace SparvagnRush.Gameplay
             target = newTarget;
             tram = newTarget.GetComponent<TramController>();
             cameraComponent = GetComponent<Camera>();
+            ResetFraming();
+        }
+
+        public void ResetFraming()
+        {
+            velocity = lookVelocity = Vector3.zero;
+            yawVelocity = currentYaw = manualYaw = manualPitch = 0f;
+            flipped = false;
+            currentZoom = targetZoom = 1f;
+            arrivalTime = 1.5f;
+            if (target != null) currentLookPoint = target.position + Vector3.up * 2.2f;
         }
 
         private void LateUpdate()
@@ -78,8 +91,12 @@ namespace SparvagnRush.Gameplay
             Vector3 localOffset = offset * (currentZoom * pullBack);
             Quaternion orbit = Quaternion.Euler(manualPitch, currentYaw + manualYaw, 0f);
             Vector3 desired = target.position + heading * (orbit * localOffset);
-            desired = AvoidScenery(currentLookPoint, desired);
-            transform.position = Vector3.SmoothDamp(transform.position, desired, ref velocity, 0.16f);
+            arrivalTime = Mathf.Max(0f, arrivalTime - Time.deltaTime);
+            float damping = Mathf.Lerp(0.16f, 0.55f, arrivalTime / 1.5f);
+            Vector3 candidate = Vector3.SmoothDamp(transform.position, desired, ref velocity, damping);
+            // Check the interpolated position too: a clear destination does not mean
+            // the camera's route down from the overview is clear of roof geometry.
+            transform.position = AvoidScenery(currentLookPoint, candidate);
             transform.rotation = Quaternion.Slerp(transform.rotation,
                 Quaternion.LookRotation(currentLookPoint - transform.position, Vector3.up),
                 1f - Mathf.Exp(-12f * Time.deltaTime));
@@ -92,10 +109,12 @@ namespace SparvagnRush.Gameplay
         {
             Vector3 ray = desired - origin;
             if (ray.sqrMagnitude < 0.01f) return desired;
-            RaycastHit[] hits = Physics.RaycastAll(origin, ray.normalized, ray.magnitude, collisionMask, QueryTriggerInteraction.Ignore);
+            int count = Physics.SphereCastNonAlloc(origin, 0.6f, ray.normalized, sceneryHits,
+                ray.magnitude, collisionMask, QueryTriggerInteraction.Ignore);
             float nearest = ray.magnitude;
-            foreach (RaycastHit hit in hits)
+            for (int i = 0; i < count; i++)
             {
+                RaycastHit hit = sceneryHits[i];
                 if (hit.transform == target || hit.transform.IsChildOf(target)) continue;
                 nearest = Mathf.Min(nearest, hit.distance);
             }

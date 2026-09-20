@@ -44,6 +44,8 @@ namespace SparvagnRush.Gameplay
         private void Update()
         {
             if (network == null || focus == null) return;
+            if (crowdRoot != null) crowdRoot.gameObject.SetActive(focus.gameObject.activeInHierarchy);
+            if (!focus.gameObject.activeInHierarchy) return;
             recycleTimer -= Time.deltaTime;
             if (recycleTimer > 0f) return;
             recycleTimer = 0.65f;
