@@ -87,7 +87,9 @@ namespace SparvagnRush.Gameplay
 
             TramGameManager manager = gameObject.AddComponent<TramGameManager>();
             manager.Initialize(network, tram);
-            gameObject.AddComponent<CityOverview>().Initialize(camera, manager, network, transform);
+            CityOverview overview = gameObject.AddComponent<CityOverview>();
+            overview.Initialize(camera, manager, network, transform);
+            gameObject.AddComponent<TramInterface>().Initialize(manager, overview);
 
             AmbientNpcManager pedestrians = gameObject.AddComponent<AmbientNpcManager>();
             pedestrians.Initialize(network, tram.transform);

@@ -16,7 +16,8 @@ namespace SparvagnRush.Gameplay
             Transform oldTracks = transform.Find("TramTracks");
             if (oldTracks != null && oldTracks.TryGetComponent(out Renderer oldRenderer)) oldRenderer.enabled = false;
             BuildRails(network);
-            DressRoads();
+            Transform roads = transform.Find("Roads");
+            if (roads != null && roads.TryGetComponent(out Renderer roadRenderer)) roadRenderer.enabled = false;
             DressSurface("Water", new Color(0.10f, 0.27f, 0.32f), 0.72f, 0.3f);
 
             var volume = new GameObject("City Colour Grade").AddComponent<Volume>();
@@ -58,51 +59,6 @@ namespace SparvagnRush.Gameplay
         {
             Transform item = transform.Find(layer);
             if (item != null && item.TryGetComponent(out Renderer renderer)) renderer.sharedMaterial = Lit(layer + " Finish", colour, smoothness, metallic);
-        }
-
-        private void DressRoads()
-        {
-            Transform roads = transform.Find("Roads");
-            if (roads == null || !roads.TryGetComponent(out MeshFilter filter) || !roads.TryGetComponent(out Renderer renderer)) return;
-            var asphalt = Lit("Textured Asphalt", Color.white, 0.18f);
-            const int width = 128, length = 256;
-            var texture = new Texture2D(width, length, TextureFormat.RGBA32, true) { name = "Asphalt and Edge Lines", wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Trilinear, anisoLevel = 4 };
-            var pixels = new Color32[width * length];
-            for (int y = 0; y < length; y++)
-            for (int x = 0; x < width; x++)
-            {
-                uint hash = unchecked((uint)(x * 73856093 ^ y * 19349663));
-                float grain = (hash % 127) / 126f;
-                float edge = Mathf.Min(x, width - 1 - x);
-                Color colour = Color.Lerp(new Color(0.16f, 0.185f, 0.20f), new Color(0.24f, 0.255f, 0.26f), grain);
-                // Pale inset borders read as road edges without yellow route highlighting.
-                if (edge >= 5 && edge <= 7) colour = new Color(0.63f, 0.62f, 0.55f) * (0.85f + grain * 0.15f);
-                else if (edge < 4) colour *= 0.75f;
-                pixels[y * width + x] = colour;
-            }
-            texture.SetPixels32(pixels);
-            texture.Apply(true, true);
-            owned.Add(texture);
-            asphalt.SetTexture("_BaseMap", texture);
-            renderer.sharedMaterial = asphalt;
-
-            // Ribbon vertices arrive in left/right pairs. Widen a copy for a stone verge;
-            // retain the source mesh and colliders used by pedestrian navigation.
-            Mesh source = filter.sharedMesh;
-            if (source == null || !source.isReadable || source.vertexCount % 2 != 0) return;
-            Mesh kerb = Instantiate(source);
-            kerb.name = "Road Stone Edges";
-            Vector3[] vertices = kerb.vertices;
-            for (int i = 0; i < vertices.Length; i += 2)
-            {
-                Vector3 side = (vertices[i + 1] - vertices[i]).normalized * 0.32f;
-                vertices[i] -= side + Vector3.up * 0.035f;
-                vertices[i + 1] += side - Vector3.up * 0.035f;
-            }
-            kerb.vertices = vertices;
-            kerb.RecalculateBounds();
-            owned.Add(kerb);
-            Layer("Road Stone Edges", kerb, Lit("Pale Granite", new Color(0.43f, 0.44f, 0.42f), 0.25f));
         }
 
         private void BuildRails(TramTrackNetwork network)

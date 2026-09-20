@@ -84,6 +84,14 @@ namespace SparvagnRush.Gameplay
         private float leanAngle;
         private float leanVelocity;
         private float smoothedLeanInput;
+        private int travelSign = 1;
+        public int TravelSign => travelSign;
+        public static float TravelRelativeLean(float lean, int direction) => lean * direction;
+        public static int JunctionForLean(float bodyLean, float threshold, int direction)
+        {
+            float lean = TravelRelativeLean(bodyLean, direction);
+            return lean < -threshold ? -1 : lean > threshold ? 1 : 0;
+        }
         private bool derailed;
         // The prefab's own collider, resolved on derail and used to measure the wreck.
         private Collider hull;
@@ -126,13 +134,14 @@ namespace SparvagnRush.Gameplay
             // Junctions follow the tram's physical pose, not the key currently held.
             // This keeps a committed lean meaningful even if the player releases A/D
             // just before the wheels reach the switch.
-            junctionChoice = leanAngle < -junctionLeanThreshold ? -1
-                : leanAngle > junctionLeanThreshold ? 1
-                : 0;
-
             speed = throttle == 0f
                 ? Mathf.MoveTowards(speed, 0f, coastingDrag * Time.deltaTime)
                 : Mathf.MoveTowards(speed, throttle * maximumSpeed, acceleration * Time.deltaTime);
+
+            // Keep the last direction at rest so the controls do not flip while braking.
+            if (speed > 0.15f) travelSign = 1;
+            else if (speed < -0.15f) travelSign = -1;
+            junctionChoice = JunctionForLean(leanAngle, junctionLeanThreshold, travelSign);
 
             // A tram has to be slow enough to hold the rail through the bend it is entering.
             bool forward = (Mathf.Abs(speed) > 0.01f ? speed : throttle) >= 0f;
@@ -142,7 +151,7 @@ namespace SparvagnRush.Gameplay
             edgeProgress += speed * Time.deltaTime;
             AdvanceAcrossNodes();
             smoothedLeanInput = Mathf.MoveTowards(smoothedLeanInput, leanInput, leanInputResponse * Time.deltaTime);
-            UpdateLean(smoothedLeanInput, Time.deltaTime);
+            UpdateLean(TravelRelativeLean(smoothedLeanInput, travelSign), Time.deltaTime);
             if (derailed) return;
             ApplyTransform();
         }
@@ -287,12 +296,12 @@ namespace SparvagnRush.Gameplay
         }
 
         // Point `distance` further along the track, used to aim the nose into a bend.
-        private Vector3 TrackPointAhead(float distance)
+        private Vector3 TrackPointAhead(float distance, bool reverse = false)
         {
             IReadOnlyList<TramTrackNetwork.GraphNode> graph = network.Graph;
-            int previous = currentNode;
-            int reached = targetNode;
-            float remaining = Mathf.Max(0f, CurrentEdgeLength() - edgeProgress);
+            int previous = reverse ? targetNode : currentNode;
+            int reached = reverse ? currentNode : targetNode;
+            float remaining = Mathf.Max(0f, reverse ? edgeProgress : CurrentEdgeLength() - edgeProgress);
 
             for (int step = 0; step < LookAheadNodeLimit; step++)
             {
@@ -345,14 +354,15 @@ namespace SparvagnRush.Gameplay
         private float LateralAcceleration()
         {
             float half = Mathf.Max(1f, curvatureSample * 0.5f);
-            Vector3 first = TrackPointAhead(half) - TrackPointAhead(0f);
-            Vector3 second = TrackPointAhead(half * 2f) - TrackPointAhead(half);
+            bool reverse = travelSign < 0;
+            Vector3 first = TrackPointAhead(half, reverse) - TrackPointAhead(0f, reverse);
+            Vector3 second = TrackPointAhead(half * 2f, reverse) - TrackPointAhead(half, reverse);
             first.y = 0f;
             second.y = 0f;
             if (first.sqrMagnitude < 0.01f || second.sqrMagnitude < 0.01f) return 0f;
 
             float turn = Vector3.SignedAngle(first, second, Vector3.up) * Mathf.Deg2Rad;
-            return speed * speed * (turn / half);
+            return speed * speed * (turn / half) * travelSign;
         }
 
         private void Derail()
@@ -443,6 +453,7 @@ namespace SparvagnRush.Gameplay
             leanAngle = 0f;
             leanVelocity = 0f;
             smoothedLeanInput = 0f;
+            travelSign = 1;
             speed = 0f;
             junctionChoice = 0;
             headingInitialised = false;
@@ -465,7 +476,8 @@ namespace SparvagnRush.Gameplay
 
             // Aiming at a point further down the track sweeps the body through a bend
             // rather than pivoting it on the node, and keeps the pitch of the slope.
-            Vector3 direction = TrackPointAhead(headingLookAhead) + Vector3.up * 1.1f - position;
+            Vector3 aim = TrackPointAhead(headingLookAhead, travelSign < 0) + Vector3.up * 1.1f;
+            Vector3 direction = travelSign < 0 ? position - aim : aim - position;
             if (direction.sqrMagnitude < 0.001f) direction = b - a;
             if (direction.sqrMagnitude < 0.001f) return;
 

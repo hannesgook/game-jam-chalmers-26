@@ -425,7 +425,9 @@ namespace SparvagnRush.Editor
             var layer = new GameObject(name);
             layer.transform.SetParent(parent, false);
             layer.AddComponent<MeshFilter>().sharedMesh = mesh;
-            layer.AddComponent<MeshRenderer>().sharedMaterial = material;
+            MeshRenderer renderer = layer.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.enabled = name != "Roads";
             // The ground gives a derailed tram somewhere to land; the walls and roofs
             // give it something to hit on the way. Roads and water stay collider-free:
             // they sit on the ground surface and would only add cook time.

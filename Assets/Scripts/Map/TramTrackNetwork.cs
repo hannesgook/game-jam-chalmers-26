@@ -87,6 +87,60 @@ namespace SparvagnRush.Map
             return nodes[0].position;
         }
 
+        /// <summary>Shortest connected rail route, including partial first and last edges.</summary>
+        public bool FindRoute(Vector3 from, Vector3 to, List<Vector3> route)
+            => FindRoute(Graph, FindClosestEdge(from), FindClosestEdge(to), route);
+
+        public static bool FindRoute(IReadOnlyList<GraphNode> nodes, ClosestEdge start, ClosestEdge finish, List<Vector3> route)
+        {
+            route.Clear();
+            if (nodes.Count < 2) return false;
+            if (start.A == finish.A && start.B == finish.B)
+            {
+                route.Add(start.Point); route.Add(finish.Point);
+                return true;
+            }
+            var costs = new float[nodes.Count];
+            var parents = new int[nodes.Count];
+            for (int i = 0; i < nodes.Count; i++) { costs[i] = float.PositiveInfinity; parents[i] = -1; }
+            var queue = new SortedSet<(float cost, int node)>();
+            Seed(start.A); Seed(start.B);
+            float best = float.PositiveInfinity;
+            int last = -1;
+            while (queue.Count > 0)
+            {
+                var next = queue.Min;
+                queue.Remove(next);
+                if (next.cost >= best) break;
+                if (next.node == finish.A || next.node == finish.B)
+                {
+                    float total = next.cost + Vector3.Distance(nodes[next.node].position, finish.Point);
+                    if (total < best) { best = total; last = next.node; }
+                }
+                foreach (int neighbour in nodes[next.node].neighbours)
+                {
+                    float cost = next.cost + Vector3.Distance(nodes[next.node].position, nodes[neighbour].position);
+                    if (cost >= costs[neighbour]) continue;
+                    queue.Remove((costs[neighbour], neighbour));
+                    costs[neighbour] = cost;
+                    parents[neighbour] = next.node;
+                    queue.Add((cost, neighbour));
+                }
+            }
+            if (last < 0) return false;
+            for (int i = last; i >= 0; i = parents[i]) route.Add(nodes[i].position);
+            route.Reverse();
+            route.Insert(0, start.Point);
+            route.Add(finish.Point);
+            return true;
+
+            void Seed(int node)
+            {
+                costs[node] = Vector3.Distance(start.Point, nodes[node].position);
+                queue.Add((costs[node], node));
+            }
+        }
+
         private List<GraphNode> BuildGraph()
         {
             const float mergeDistance = 0.35f;
