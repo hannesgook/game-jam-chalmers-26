@@ -25,10 +25,31 @@ to be duplicated in the detail file.
 
 `aerial.jpg` is the official Göteborg 2025 orthophoto for exactly the map bounds
 `57.695, 11.965` to `57.710, 11.985`. It comes from Göteborgs Stad's open WMS
-and is CC0. Refresh it with `python Tools/FetchAerial.py`, then regenerate the
-map. The terrain UVs are georeferenced to those bounds. Do not replace it with
-tiles copied from consumer map websites; their terms commonly prohibit
+and is CC0. The terrain UVs are georeferenced to those bounds. Do not replace it
+with tiles copied from consumer map websites; their terms commonly prohibit
 repackaging them in a game.
+
+The file is Git-ignored, so a fresh clone has to fetch it. Either use the menu
+item
+
+    Tools > Göteborg > Download Aerial Imagery
+
+or, if you would rather not open the editor, run
+
+    python Tools/FetchAerial.py
+
+Both request the same image from the same bounds; the menu item exists so the
+project does not need Python on the machine, and it also applies the import
+settings the ground needs (the default 2048 cap would throw away three quarters
+of the resolution) and repoints the generated `Ground` and `BuildingRoofs`
+materials at the freshly imported texture.
+
+That last step matters because those two materials are committed and reference
+the photo by GUID, while `aerial.jpg.meta` is ignored: a newly imported copy gets
+a new GUID, so without the repoint the materials resolve to nothing and the
+ground stays grey. The repoint writes your local GUID into the two `.mat` files,
+so do not commit that change unless `aerial.jpg` and its `.meta` are committed
+too — otherwise it simply moves the problem to the next person.
 
 The generator applies the same geographic projection to building roofs, so
 roof details in the orthophoto align with the extruded 3D footprints.
